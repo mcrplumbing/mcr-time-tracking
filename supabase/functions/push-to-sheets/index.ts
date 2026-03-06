@@ -188,7 +188,14 @@ serve(async (req) => {
     if (!entries || entries.length === 0) throw new Error("No entries provided");
 
     // Get access token
+    console.log("Attempting to get access token...");
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
+    console.log("Access token obtained, length:", accessToken?.length);
+
+    // Quick test: check token info
+    const tokenInfoRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${accessToken}`);
+    const tokenInfo = await tokenInfoRes.json();
+    console.log("Token info:", JSON.stringify(tokenInfo));
 
     // Determine week start from first entry's date
     const weekStart = getWeekStart(entries[0]?.date);
