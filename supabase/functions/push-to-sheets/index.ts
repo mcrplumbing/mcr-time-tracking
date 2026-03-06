@@ -154,6 +154,8 @@ async function purgeAllDriveFiles(accessToken: string): Promise<number> {
   return deleted;
 }
 
+const DRIVE_FOLDER_ID = "1YqpqvrEDQ9MkoMljaaB8VAIF4nvPwGMX";
+
 async function createSpreadsheet(
   accessToken: string,
   title: string
@@ -167,6 +169,7 @@ async function createSpreadsheet(
     body: JSON.stringify({
       name: title,
       mimeType: "application/vnd.google-apps.spreadsheet",
+      parents: [DRIVE_FOLDER_ID],
     }),
   });
 
@@ -245,31 +248,38 @@ serve(async (req) => {
 
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
 
-    // Check quota
-    await checkDriveQuota(accessToken);
-
-    // Purge all old Drive files to free quota
-    console.log("Purging old Drive files to free storage quota...");
-    const deletedCount = await purgeAllDriveFiles(accessToken);
-    console.log(`Purged ${deletedCount} old files`);
-
-    // Also clear old weekly_sheets records from DB
-    await supabase.from("weekly_sheets").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-
     const weekStart = getWeekStart(entries[0]?.date);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    const title = `MCR Payroll - Week of ${weekStart} to ${weekEnd.toISOString().split("T")[0]}`;
 
-    const result = await createSpreadsheet(accessToken, title);
-    const { spreadsheetId, spreadsheetUrl } = result;
+    // Check if we already have a sheet for this week
+    const { data: existing } = await supabase
+      .from("weekly_sheets")
+      .select("*")
+      .eq("week_start", weekStart)
+      .maybeSingle();
 
-    // Save to DB
-    await supabase.from("weekly_sheets").insert({
-      week_start: weekStart,
-      spreadsheet_id: spreadsheetId,
-      spreadsheet_url: spreadsheetUrl,
-    });
+    let spreadsheetId: string;
+    let spreadsheetUrl: string;
+    let isNewSheet = false;
+
+    if (existing) {
+      spreadsheetId = existing.spreadsheet_id;
+      spreadsheetUrl = existing.spreadsheet_url;
+    } else {
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      const title = `MCR Payroll - Week of ${weekStart} to ${weekEnd.toISOString().split("T")[0]}`;
+
+      const result = await createSpreadsheet(accessToken, title);
+      spreadsheetId = result.spreadsheetId;
+      spreadsheetUrl = result.spreadsheetUrl;
+      isNewSheet = true;
+
+      await supabase.from("weekly_sheets").insert({
+        week_start: weekStart,
+        spreadsheet_id: spreadsheetId,
+        spreadsheet_url: spreadsheetUrl,
+      });
+    }
 
     // Append rows
     const rows = entries.map((e) => [
@@ -288,8 +298,7 @@ serve(async (req) => {
         success: true,
         spreadsheet_url: spreadsheetUrl,
         entries_added: entries.length,
-        is_new_sheet: true,
-        files_purged: deletedCount,
+        is_new_sheet: isNewSheet,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
