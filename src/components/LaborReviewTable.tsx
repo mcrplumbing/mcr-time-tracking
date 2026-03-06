@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CheckCircle, Download, Pencil, Trash2 } from "lucide-react";
+import { CheckCircle, Download, Pencil, Trash2, Send, ExternalLink, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -28,7 +28,8 @@ interface LaborReviewTableProps {
 
 const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
   const [editingCell, setEditingCell] = useState<string | null>(null);
-
+  const [isSending, setIsSending] = useState(false);
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null);
   const flatEntries = workOrders.flatMap((wo) =>
     wo.entries.map((entry, i) => ({
       woIndex: workOrders.indexOf(wo),
@@ -109,6 +110,37 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
     toast.success("CSV exported successfully");
   };
 
+  const sendToSheets = async () => {
+    setIsSending(true);
+    try {
+      const entries = flatEntries.map((e) => ({
+        job_number: e.job_number,
+        date: e.date,
+        day_of_week: e.day_of_week,
+        employee_name: e.employee_name,
+        hours: e.hours,
+        type: e.type,
+      }));
+
+      const { data, error } = await supabase.functions.invoke("push-to-sheets", {
+        body: { entries },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setSheetUrl(data.spreadsheet_url);
+      toast.success(
+        `${data.entries_added} entries sent to Google Sheets${data.is_new_sheet ? " (new sheet created)" : ""}`
+      );
+    } catch (err) {
+      console.error("Push to sheets error:", err);
+      toast.error("Failed to send to Google Sheets. Please try again.");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   const cellKey = (woIdx: number, entryIdx: number, field: string) =>
     `${woIdx}-${entryIdx}-${field}`;
 
@@ -126,10 +158,30 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
             ({flatEntries.length} entries)
           </span>
         </div>
-        <Button variant="outline" size="sm" onClick={exportCSV}>
-          <Download className="h-4 w-4" />
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={exportCSV}>
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button size="sm" onClick={sendToSheets} disabled={isSending}>
+            {isSending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+            {isSending ? "Sending..." : "Send to Sheets"}
+          </Button>
+          {sheetUrl && (
+            <a
+              href={sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+            >
+              Open Sheet <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
       </div>
 
       <p className="text-sm text-muted-foreground">
