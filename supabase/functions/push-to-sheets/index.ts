@@ -95,6 +95,8 @@ async function createSpreadsheet(
   accessToken: string,
   title: string
 ): Promise<{ spreadsheetId: string; spreadsheetUrl: string }> {
+  // Try minimal request first
+  console.log("Creating spreadsheet with minimal payload...");
   const res = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
     method: "POST",
     headers: {
@@ -103,27 +105,6 @@ async function createSpreadsheet(
     },
     body: JSON.stringify({
       properties: { title },
-      sheets: [
-        {
-          properties: { title: "Labor Data" },
-          data: [
-            {
-              startRow: 0,
-              startColumn: 0,
-              rowData: [
-                {
-                  values: [
-                    "Job #", "Date", "Day", "Employee", "Hours", "Type",
-                  ].map((h) => ({
-                    userEnteredValue: { stringValue: h },
-                    userEnteredFormat: { textFormat: { bold: true } },
-                  })),
-                },
-              ],
-            },
-          ],
-        },
-      ],
     }),
   });
 
