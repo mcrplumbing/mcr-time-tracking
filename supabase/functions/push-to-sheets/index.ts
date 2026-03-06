@@ -86,6 +86,15 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
   return tokenData.access_token;
 }
 
+// Check Drive storage quota
+async function checkDriveQuota(accessToken: string): Promise<void> {
+  const res = await fetch("https://www.googleapis.com/drive/v3/about?fields=storageQuota", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const data = await res.json();
+  console.log("Drive storage quota:", JSON.stringify(data));
+}
+
 // Delete ALL files from service account's Drive to free quota
 async function purgeAllDriveFiles(accessToken: string): Promise<number> {
   let deleted = 0;
