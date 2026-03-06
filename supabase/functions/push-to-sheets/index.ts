@@ -16,7 +16,7 @@ interface LaborEntry {
 }
 
 // Pre-created spreadsheet shared with service account
-const SPREADSHEET_ID = "PLACEHOLDER";
+const SPREADSHEET_ID = "1ucmQlW-X8uU6SEu0wSY2xEXynVQwgxho_uK3lpEk304";
 
 async function getAccessToken(serviceAccountKey: string): Promise<string> {
   const sa = JSON.parse(serviceAccountKey);
