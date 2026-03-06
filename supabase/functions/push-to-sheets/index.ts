@@ -95,31 +95,54 @@ async function createSpreadsheet(
   accessToken: string,
   title: string
 ): Promise<{ spreadsheetId: string; spreadsheetUrl: string }> {
-  // Try minimal request first
-  console.log("Creating spreadsheet with minimal payload...");
-  const res = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
+  // Create spreadsheet via Drive API (which works) instead of Sheets API
+  console.log("Creating spreadsheet via Drive API...");
+  const driveRes = await fetch("https://www.googleapis.com/drive/v3/files", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      properties: { title },
+      name: title,
+      mimeType: "application/vnd.google-apps.spreadsheet",
     }),
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    console.error("Full Google API error response:", err);
-    console.error("Response headers:", JSON.stringify(Object.fromEntries(res.headers.entries())));
-    throw new Error(`Create spreadsheet failed [${res.status}]: ${err}`);
+  if (!driveRes.ok) {
+    const err = await driveRes.text();
+    throw new Error(`Create spreadsheet via Drive failed [${driveRes.status}]: ${err}`);
   }
 
-  const data = await res.json();
-  return {
-    spreadsheetId: data.spreadsheetId,
-    spreadsheetUrl: data.spreadsheetUrl,
-  };
+  const driveData = await driveRes.json();
+  const spreadsheetId = driveData.id;
+  const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+  console.log("Spreadsheet created:", spreadsheetId);
+
+  // Add headers via Sheets API
+  try {
+    const headerRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Sheet1!A1:F1?valueInputOption=USER_ENTERED`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          values: [["Job #", "Date", "Day", "Employee", "Hours", "Type"]],
+        }),
+      }
+    );
+    if (!headerRes.ok) {
+      const err = await headerRes.text();
+      console.error("Failed to add headers:", err);
+    }
+  } catch (e) {
+    console.error("Header write error:", e);
+  }
+
+  return { spreadsheetId, spreadsheetUrl };
 }
 
 async function appendRows(
