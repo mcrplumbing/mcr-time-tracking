@@ -121,7 +121,7 @@ async function findDaySection(
   accessToken: string,
   tabTitle: string,
   dayName: string
-): Promise<{ headerRow: number; employees: string[]; insertRow: number }> {
+): Promise<{ headerRow: number; employees: string[]; insertRow: number; existingTotalRow: number | null }> {
   const range = encodeURIComponent(`${tabTitle}!A1:Z200`);
   const data = await sheetsApi(accessToken, `/values/${range}`);
   const rows: string[][] = data.values || [];
@@ -139,10 +139,8 @@ async function findDaySection(
 
   if (headerRow === -1) throw new Error(`Day "${dayName}" not found in sheet "${tabTitle}"`);
 
-  // Employee names might be in the day row itself or the row below it
-  // Check both rows and use whichever has names starting from column C
-  let employeeRow = headerRow;
   let employees: string[] = [];
+  let employeeRow = headerRow;
 
   for (const candidateRow of [headerRow, headerRow + 1]) {
     const candidateCells = rows[candidateRow] || [];
@@ -161,12 +159,17 @@ async function findDaySection(
 
   console.log(`Employee names found in row ${employeeRow}: ${employees.join(",")}`);
 
-  // Find where to insert: right after employee header row, or after existing job entries.
+  // Find insert position and check for existing TOTAL row
   let insertRow = employeeRow + 1;
+  let existingTotalRow: number | null = null;
 
-  // Now find the first empty row in column B (job number column)
   for (let i = insertRow; i < rows.length; i++) {
-    const cellB = (rows[i]?.[1] || "").trim();
+    const cellB = (rows[i]?.[1] || "").trim().toUpperCase();
+    if (cellB === "TOTAL") {
+      existingTotalRow = i;
+      insertRow = i; // insert before the existing TOTAL row
+      break;
+    }
     if (!cellB) {
       insertRow = i;
       break;
@@ -174,7 +177,7 @@ async function findDaySection(
     insertRow = i + 1;
   }
 
-  return { headerRow, employees, insertRow };
+  return { headerRow, employees, insertRow, existingTotalRow };
 }
 
 interface PivotRow {
