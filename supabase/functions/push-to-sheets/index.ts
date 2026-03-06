@@ -340,9 +340,25 @@ async function updateRecapSection(
     const offHours = offHoursByEmployee.get(nameUpper);
 
     if (regular !== undefined || offHours !== undefined) {
-      // Read existing values from columns C and D
+      // Read existing values from columns B, C and D
+      const existingTotal = parseFloat(rows[i]?.[1] || "0") || 0;
       const existingRegular = parseFloat(rows[i]?.[2] || "0") || 0;
       const existingOffHours = parseFloat(rows[i]?.[3] || "0") || 0;
+
+      const addedTotal = (regular || 0) + (offHours || 0);
+
+      // Column B (index 1) = total hours (accumulate)
+      if (addedTotal > 0) {
+        const newTotal = existingTotal + addedTotal;
+        requests.push({
+          updateCells: {
+            rows: [{ values: [{ userEnteredValue: { numberValue: newTotal } }] }],
+            start: { sheetId, rowIndex: i, columnIndex: 1 },
+            fields: "userEnteredValue",
+          },
+        });
+        console.log(`Recap: ${nameInA} Total: ${existingTotal} + ${addedTotal} = ${newTotal}`);
+      }
 
       // Column C (index 2) = regular hours (accumulate)
       if (regular !== undefined) {
