@@ -220,9 +220,24 @@ async function writeJobRows(
   tabTitle: string,
   insertRow: number,
   pivotRows: PivotRow[],
-  employees: string[]
+  employees: string[],
+  existingTotalRow: number | null
 ) {
   const requests: any[] = [];
+
+  // Delete existing TOTAL row first if present
+  if (existingTotalRow !== null) {
+    requests.push({
+      deleteDimension: {
+        range: {
+          sheetId,
+          dimension: "ROWS",
+          startIndex: existingTotalRow,
+          endIndex: existingTotalRow + 1,
+        },
+      },
+    });
+  }
 
   // Insert new rows below the header for data + 1 for totals row
   const totalRows = pivotRows.length + 1;
