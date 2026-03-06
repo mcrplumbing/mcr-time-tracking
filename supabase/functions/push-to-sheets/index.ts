@@ -89,12 +89,25 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
 // Delete ALL files from service account's Drive to free quota
 async function purgeAllDriveFiles(accessToken: string): Promise<number> {
   let deleted = 0;
-  let pageToken: string | undefined;
 
+  // First, empty the trash
+  try {
+    const trashRes = await fetch("https://www.googleapis.com/drive/v3/files/emptyTrash", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    console.log("Empty trash response:", trashRes.status, await trashRes.text());
+  } catch (e) {
+    console.error("Failed to empty trash:", e);
+  }
+
+  // Then list and delete all remaining files (including trashed ones)
+  let pageToken: string | undefined;
   do {
     const url = new URL("https://www.googleapis.com/drive/v3/files");
     url.searchParams.set("pageSize", "100");
-    url.searchParams.set("fields", "nextPageToken,files(id,name)");
+    url.searchParams.set("fields", "nextPageToken,files(id,name,trashed)");
+    url.searchParams.set("q", "trashed=true or trashed=false");
     if (pageToken) url.searchParams.set("pageToken", pageToken);
 
     const res = await fetch(url.toString(), {
@@ -110,6 +123,7 @@ async function purgeAllDriveFiles(accessToken: string): Promise<number> {
     const data = await res.json();
     const files = data.files || [];
     pageToken = data.nextPageToken;
+    console.log(`Found ${files.length} files to delete`);
 
     for (const file of files) {
       try {
@@ -117,28 +131,16 @@ async function purgeAllDriveFiles(accessToken: string): Promise<number> {
           method: "DELETE",
           headers: { Authorization: `Bearer ${accessToken}` },
         });
+        await delRes.text(); // consume body
         if (delRes.ok) {
           deleted++;
           console.log(`Deleted: ${file.name} (${file.id})`);
-        } else {
-          await delRes.text(); // consume body
         }
       } catch (e) {
         console.error(`Failed to delete ${file.id}:`, e);
       }
     }
   } while (pageToken);
-
-  // Also empty trash
-  try {
-    await fetch("https://www.googleapis.com/drive/v3/files/trash", {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    console.log("Trash emptied");
-  } catch (e) {
-    console.error("Failed to empty trash:", e);
-  }
 
   return deleted;
 }
