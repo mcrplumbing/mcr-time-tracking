@@ -95,48 +95,54 @@ async function createSpreadsheet(
   accessToken: string,
   title: string
 ): Promise<{ spreadsheetId: string; spreadsheetUrl: string }> {
-  const res = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
+  // Create spreadsheet via Drive API (which works) instead of Sheets API
+  console.log("Creating spreadsheet via Drive API...");
+  const driveRes = await fetch("https://www.googleapis.com/drive/v3/files", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      properties: { title },
-      sheets: [
-        {
-          properties: { title: "Labor Data" },
-          data: [
-            {
-              startRow: 0,
-              startColumn: 0,
-              rowData: [
-                {
-                  values: [
-                    "Job #", "Date", "Day", "Employee", "Hours", "Type",
-                  ].map((h) => ({
-                    userEnteredValue: { stringValue: h },
-                    userEnteredFormat: { textFormat: { bold: true } },
-                  })),
-                },
-              ],
-            },
-          ],
-        },
-      ],
+      name: title,
+      mimeType: "application/vnd.google-apps.spreadsheet",
     }),
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Create spreadsheet failed [${res.status}]: ${err}`);
+  if (!driveRes.ok) {
+    const err = await driveRes.text();
+    throw new Error(`Create spreadsheet via Drive failed [${driveRes.status}]: ${err}`);
   }
 
-  const data = await res.json();
-  return {
-    spreadsheetId: data.spreadsheetId,
-    spreadsheetUrl: data.spreadsheetUrl,
-  };
+  const driveData = await driveRes.json();
+  const spreadsheetId = driveData.id;
+  const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+  console.log("Spreadsheet created:", spreadsheetId);
+
+  // Add headers via Sheets API
+  try {
+    const headerRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Sheet1!A1:F1?valueInputOption=USER_ENTERED`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          values: [["Job #", "Date", "Day", "Employee", "Hours", "Type"]],
+        }),
+      }
+    );
+    if (!headerRes.ok) {
+      const err = await headerRes.text();
+      console.error("Failed to add headers:", err);
+    }
+  } catch (e) {
+    console.error("Header write error:", e);
+  }
+
+  return { spreadsheetId, spreadsheetUrl };
 }
 
 async function appendRows(
@@ -196,6 +202,13 @@ serve(async (req) => {
     const tokenInfoRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${accessToken}`);
     const tokenInfo = await tokenInfoRes.json();
     console.log("Token info:", JSON.stringify(tokenInfo));
+
+    // Test Drive API access first
+    const driveTestRes = await fetch("https://www.googleapis.com/drive/v3/about?fields=user", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const driveTestBody = await driveTestRes.text();
+    console.log("Drive API test:", driveTestRes.status, driveTestBody);
 
     // Determine week start from first entry's date
     const weekStart = getWeekStart(entries[0]?.date);
