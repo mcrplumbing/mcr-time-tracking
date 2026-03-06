@@ -199,6 +199,13 @@ serve(async (req) => {
     const tokenInfo = await tokenInfoRes.json();
     console.log("Token info:", JSON.stringify(tokenInfo));
 
+    // Test Drive API access first
+    const driveTestRes = await fetch("https://www.googleapis.com/drive/v3/about?fields=user", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const driveTestBody = await driveTestRes.text();
+    console.log("Drive API test:", driveTestRes.status, driveTestBody);
+
     // Determine week start from first entry's date
     const weekStart = getWeekStart(entries[0]?.date);
 
