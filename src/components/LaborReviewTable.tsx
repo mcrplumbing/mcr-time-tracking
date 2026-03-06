@@ -28,7 +28,8 @@ interface LaborReviewTableProps {
 
 const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
   const [editingCell, setEditingCell] = useState<string | null>(null);
-
+  const [isSending, setIsSending] = useState(false);
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null);
   const flatEntries = workOrders.flatMap((wo) =>
     wo.entries.map((entry, i) => ({
       woIndex: workOrders.indexOf(wo),
