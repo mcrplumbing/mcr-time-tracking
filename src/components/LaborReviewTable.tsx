@@ -207,9 +207,65 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
               return (
                 <TableRow key={key} className="hover:bg-accent/50">
                   <TableCell className="font-mono text-sm">
-                    {entry.job_number}
+                    {editingCell === cellKey(entry.woIndex, entry.entryIndex, "job") ? (
+                      <Input
+                        defaultValue={entry.job_number}
+                        autoFocus
+                        className="h-8 w-24"
+                        onBlur={(e) => {
+                          const updated = [...workOrders];
+                          updated[entry.woIndex].job_number = e.target.value;
+                          onUpdate(updated);
+                          setEditingCell(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const updated = [...workOrders];
+                            updated[entry.woIndex].job_number = (e.target as HTMLInputElement).value;
+                            onUpdate(updated);
+                            setEditingCell(null);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:text-primary"
+                        onClick={() => setEditingCell(cellKey(entry.woIndex, entry.entryIndex, "job"))}
+                      >
+                        {entry.job_number}
+                      </span>
+                    )}
                   </TableCell>
-                  <TableCell className="text-sm">{entry.date}</TableCell>
+                  <TableCell className="text-sm">
+                    {editingCell === cellKey(entry.woIndex, entry.entryIndex, "date") ? (
+                      <Input
+                        defaultValue={entry.date}
+                        autoFocus
+                        className="h-8 w-28"
+                        onBlur={(e) => {
+                          const updated = [...workOrders];
+                          updated[entry.woIndex].date = e.target.value;
+                          onUpdate(updated);
+                          setEditingCell(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const updated = [...workOrders];
+                            updated[entry.woIndex].date = (e.target as HTMLInputElement).value;
+                            onUpdate(updated);
+                            setEditingCell(null);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:text-primary"
+                        onClick={() => setEditingCell(cellKey(entry.woIndex, entry.entryIndex, "date"))}
+                      >
+                        {entry.date}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-sm">{entry.day_of_week}</TableCell>
                   <TableCell>
                     {editingCell === cellKey(entry.woIndex, entry.entryIndex, "name") ? (
