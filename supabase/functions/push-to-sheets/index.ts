@@ -274,6 +274,77 @@ async function writeJobRows(
   await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
 }
 
+// Update the recap section (columns O-R) with weekly totals per employee
+async function updateRecapSection(
+  accessToken: string,
+  sheetId: number,
+  tabTitle: string,
+  allEntries: LaborEntry[]
+) {
+  // Read columns O-R to find employee names and where to write
+  const range = encodeURIComponent(`${tabTitle}!O1:R200`);
+  const data = await sheetsApi(accessToken, `/values/${range}`);
+  const rows: string[][] = data.values || [];
+
+  // Sum hours per employee across all entries
+  const regularByEmployee = new Map<string, number>();
+  const offHoursByEmployee = new Map<string, number>();
+
+  for (const entry of allEntries) {
+    const name = entry.employee_name.toUpperCase().trim();
+    if (entry.type === "Off Hours") {
+      offHoursByEmployee.set(name, (offHoursByEmployee.get(name) || 0) + entry.hours);
+    } else {
+      regularByEmployee.set(name, (regularByEmployee.get(name) || 0) + entry.hours);
+    }
+  }
+
+  console.log("Recap - Regular hours:", Object.fromEntries(regularByEmployee));
+  console.log("Recap - Off hours:", Object.fromEntries(offHoursByEmployee));
+
+  // Find employee names in column O and write totals to Q and R
+  const requests: any[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const nameInO = (rows[i]?.[0] || "").trim();
+    if (!nameInO) continue;
+
+    const nameUpper = nameInO.toUpperCase();
+    const regular = regularByEmployee.get(nameUpper);
+    const offHours = offHoursByEmployee.get(nameUpper);
+
+    if (regular !== undefined || offHours !== undefined) {
+      const cells: any[] = [
+        {}, // Column O - skip (name already there)
+        {}, // Column P - skip (formula)
+        regular !== undefined
+          ? { userEnteredValue: { numberValue: regular } }
+          : {}, // Column Q - Regular
+        offHours !== undefined
+          ? { userEnteredValue: { numberValue: offHours } }
+          : {}, // Column R - Off Hours
+      ];
+
+      requests.push({
+        updateCells: {
+          rows: [{ values: cells }],
+          start: { sheetId, rowIndex: i, columnIndex: 14 }, // Column O = index 14
+          fields: "userEnteredValue",
+        },
+      });
+
+      console.log(`Recap: ${nameInO} -> Regular: ${regular || 0}, Off Hours: ${offHours || 0}`);
+    }
+  }
+
+  if (requests.length > 0) {
+    await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
+    console.log(`Updated recap for ${requests.length} employees`);
+  } else {
+    console.log("No matching employees found in recap section");
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS")
     return new Response(null, { headers: corsHeaders });
@@ -324,6 +395,9 @@ serve(async (req) => {
       totalAdded += pivotRows.length;
       console.log(`Inserted ${pivotRows.length} rows into ${dayName}`);
     }
+
+    // Update recap section with weekly totals
+    await updateRecapSection(accessToken, tab.sheetId, tab.title, entries);
 
     return new Response(
       JSON.stringify({
