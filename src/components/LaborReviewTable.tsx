@@ -266,7 +266,36 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
                       </span>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm">{entry.day_of_week}</TableCell>
+                  <TableCell className="text-sm">
+                    {editingCell === cellKey(entry.woIndex, entry.entryIndex, "day") ? (
+                      <Input
+                        defaultValue={entry.day_of_week}
+                        autoFocus
+                        className="h-8 w-28"
+                        onBlur={(e) => {
+                          const updated = [...workOrders];
+                          updated[entry.woIndex].day_of_week = e.target.value;
+                          onUpdate(updated);
+                          setEditingCell(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const updated = [...workOrders];
+                            updated[entry.woIndex].day_of_week = (e.target as HTMLInputElement).value;
+                            onUpdate(updated);
+                            setEditingCell(null);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:text-primary"
+                        onClick={() => setEditingCell(cellKey(entry.woIndex, entry.entryIndex, "day"))}
+                      >
+                        {entry.day_of_week}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {editingCell === cellKey(entry.woIndex, entry.entryIndex, "name") ? (
                       <Input
