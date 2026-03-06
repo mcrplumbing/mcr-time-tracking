@@ -16,19 +16,16 @@ interface LaborEntry {
   type: string;
 }
 
-// Get Monday of the current week
 function getWeekStart(dateStr?: string): string {
   const d = dateStr ? new Date(dateStr) : new Date();
   const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
   const monday = new Date(d.setDate(diff));
   return monday.toISOString().split("T")[0];
 }
 
 async function getAccessToken(serviceAccountKey: string): Promise<string> {
   const sa = JSON.parse(serviceAccountKey);
-
-  // Create JWT header and claim set
   const header = { alg: "RS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
   const claim = {
@@ -47,7 +44,6 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
 
   const unsignedToken = `${encode(header)}.${encode(claim)}`;
 
-  // Import the private key and sign
   const pemContent = sa.private_key
     .replace(/-----BEGIN PRIVATE KEY-----/, "")
     .replace(/-----END PRIVATE KEY-----/, "")
@@ -75,7 +71,6 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
 
   const jwt = `${unsignedToken}.${sig}`;
 
-  // Exchange JWT for access token
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -91,12 +86,67 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
   return tokenData.access_token;
 }
 
+// Delete ALL files from service account's Drive to free quota
+async function purgeAllDriveFiles(accessToken: string): Promise<number> {
+  let deleted = 0;
+  let pageToken: string | undefined;
+
+  do {
+    const url = new URL("https://www.googleapis.com/drive/v3/files");
+    url.searchParams.set("pageSize", "100");
+    url.searchParams.set("fields", "nextPageToken,files(id,name)");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("List files failed:", err);
+      break;
+    }
+
+    const data = await res.json();
+    const files = data.files || [];
+    pageToken = data.nextPageToken;
+
+    for (const file of files) {
+      try {
+        const delRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (delRes.ok) {
+          deleted++;
+          console.log(`Deleted: ${file.name} (${file.id})`);
+        } else {
+          await delRes.text(); // consume body
+        }
+      } catch (e) {
+        console.error(`Failed to delete ${file.id}:`, e);
+      }
+    }
+  } while (pageToken);
+
+  // Also empty trash
+  try {
+    await fetch("https://www.googleapis.com/drive/v3/files/trash", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    console.log("Trash emptied");
+  } catch (e) {
+    console.error("Failed to empty trash:", e);
+  }
+
+  return deleted;
+}
+
 async function createSpreadsheet(
   accessToken: string,
   title: string
 ): Promise<{ spreadsheetId: string; spreadsheetUrl: string }> {
-  // Create spreadsheet via Drive API (which works) instead of Sheets API
-  console.log("Creating spreadsheet via Drive API...");
   const driveRes = await fetch("https://www.googleapis.com/drive/v3/files", {
     method: "POST",
     headers: {
@@ -111,15 +161,14 @@ async function createSpreadsheet(
 
   if (!driveRes.ok) {
     const err = await driveRes.text();
-    throw new Error(`Create spreadsheet via Drive failed [${driveRes.status}]: ${err}`);
+    throw new Error(`Create spreadsheet failed [${driveRes.status}]: ${err}`);
   }
 
   const driveData = await driveRes.json();
   const spreadsheetId = driveData.id;
   const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
-  console.log("Spreadsheet created:", spreadsheetId);
 
-  // Add headers via Sheets API
+  // Add headers
   try {
     const headerRes = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Sheet1!A1:F1?valueInputOption=USER_ENTERED`,
@@ -151,7 +200,7 @@ async function appendRows(
   rows: string[][]
 ): Promise<void> {
   const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Labor Data!A:F:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Sheet1!A:F:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
     {
       method: "POST",
       headers: {
@@ -166,16 +215,6 @@ async function appendRows(
     const err = await res.text();
     throw new Error(`Append rows failed [${res.status}]: ${err}`);
   }
-}
-
-async function deleteSpreadsheet(
-  accessToken: string,
-  fileId: string
-): Promise<void> {
-  await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
 }
 
 serve(async (req) => {
@@ -193,56 +232,30 @@ serve(async (req) => {
     const { entries } = (await req.json()) as { entries: LaborEntry[] };
     if (!entries || entries.length === 0) throw new Error("No entries provided");
 
-    // Get access token
-    console.log("Attempting to get access token...");
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
-    console.log("Access token obtained, length:", accessToken?.length);
 
-    // Quick test: check token info
-    const tokenInfoRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${accessToken}`);
-    const tokenInfo = await tokenInfoRes.json();
-    console.log("Token info:", JSON.stringify(tokenInfo));
+    // Purge all old Drive files to free quota
+    console.log("Purging old Drive files to free storage quota...");
+    const deletedCount = await purgeAllDriveFiles(accessToken);
+    console.log(`Purged ${deletedCount} old files`);
 
-    // Test Drive API access first
-    const driveTestRes = await fetch("https://www.googleapis.com/drive/v3/about?fields=user", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const driveTestBody = await driveTestRes.text();
-    console.log("Drive API test:", driveTestRes.status, driveTestBody);
+    // Also clear old weekly_sheets records from DB
+    await supabase.from("weekly_sheets").delete().neq("id", "00000000-0000-0000-0000-000000000000");
 
-    // Determine week start from first entry's date
     const weekStart = getWeekStart(entries[0]?.date);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    const title = `MCR Payroll - Week of ${weekStart} to ${weekEnd.toISOString().split("T")[0]}`;
 
-    // Check if we already have a sheet for this week
-    const { data: existing } = await supabase
-      .from("weekly_sheets")
-      .select("*")
-      .eq("week_start", weekStart)
-      .maybeSingle();
+    const result = await createSpreadsheet(accessToken, title);
+    const { spreadsheetId, spreadsheetUrl } = result;
 
-    let spreadsheetId: string;
-    let spreadsheetUrl: string;
-
-    if (existing) {
-      spreadsheetId = existing.spreadsheet_id;
-      spreadsheetUrl = existing.spreadsheet_url;
-    } else {
-      // Create new spreadsheet
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekEnd.getDate() + 6);
-      const title = `MCR Payroll - Week of ${weekStart} to ${weekEnd.toISOString().split("T")[0]}`;
-
-      const result = await createSpreadsheet(accessToken, title);
-      spreadsheetId = result.spreadsheetId;
-      spreadsheetUrl = result.spreadsheetUrl;
-
-      // Save to DB
-      await supabase.from("weekly_sheets").insert({
-        week_start: weekStart,
-        spreadsheet_id: spreadsheetId,
-        spreadsheet_url: spreadsheetUrl,
-      });
-    }
+    // Save to DB
+    await supabase.from("weekly_sheets").insert({
+      week_start: weekStart,
+      spreadsheet_id: spreadsheetId,
+      spreadsheet_url: spreadsheetUrl,
+    });
 
     // Append rows
     const rows = entries.map((e) => [
@@ -256,36 +269,13 @@ serve(async (req) => {
 
     await appendRows(accessToken, spreadsheetId, rows);
 
-    // Cleanup: delete sheets older than 2 months
-    const twoMonthsAgo = new Date();
-    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-    const cutoff = twoMonthsAgo.toISOString().split("T")[0];
-
-    const { data: oldSheets } = await supabase
-      .from("weekly_sheets")
-      .select("*")
-      .lt("week_start", cutoff);
-
-    if (oldSheets && oldSheets.length > 0) {
-      for (const sheet of oldSheets) {
-        try {
-          await deleteSpreadsheet(accessToken, sheet.spreadsheet_id);
-        } catch (e) {
-          console.error(`Failed to delete old sheet ${sheet.spreadsheet_id}:`, e);
-        }
-      }
-      await supabase
-        .from("weekly_sheets")
-        .delete()
-        .lt("week_start", cutoff);
-    }
-
     return new Response(
       JSON.stringify({
         success: true,
         spreadsheet_url: spreadsheetUrl,
         entries_added: entries.length,
-        is_new_sheet: !existing,
+        is_new_sheet: true,
+        files_purged: deletedCount,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
