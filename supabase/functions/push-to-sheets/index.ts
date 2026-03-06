@@ -442,9 +442,7 @@ async function appendJobRows(
     const cells: any[] = [
       {}, // Column A (day label area, leave blank)
       {
-        userEnteredValue: pr.isOffHours
-          ? { stringValue: pr.job_number }
-          : { numberValue: Number(pr.job_number) || undefined, stringValue: pr.job_number },
+        userEnteredValue: { stringValue: pr.job_number },
         userEnteredFormat: { textFormat: { foregroundColorStyle: { rgbColor: textColor } } },
       },
     ];
