@@ -110,6 +110,38 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
     toast.success("CSV exported successfully");
   };
 
+  const sendToSheets = async () => {
+    setIsSending(true);
+    try {
+      const entries = flatEntries.map((e) => ({
+        job_number: e.job_number,
+        date: e.date,
+        day_of_week: e.day_of_week,
+        employee_name: e.employee_name,
+        hours: e.hours,
+        type: e.type,
+      }));
+
+      const { data, error } = await supabase.functions.invoke("push-to-sheets", {
+        body: { entries },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setSheetUrl(data.spreadsheet_url);
+      toast.success(
+        `${data.entries_added} entries sent to Google Sheets${data.is_new_sheet ? " (new sheet created)" : ""}`
+      );
+    } catch (err) {
+      console.error("Push to sheets error:", err);
+      toast.error("Failed to send to Google Sheets. Please try again.");
+    } finally {
+      setIsSending(false);
+    }
+  };
+  };
+
   const cellKey = (woIdx: number, entryIdx: number, field: string) =>
     `${woIdx}-${entryIdx}-${field}`;
 
