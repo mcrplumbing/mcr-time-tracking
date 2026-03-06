@@ -140,7 +140,6 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
       setIsSending(false);
     }
   };
-  };
 
   const cellKey = (woIdx: number, entryIdx: number, field: string) =>
     `${woIdx}-${entryIdx}-${field}`;
