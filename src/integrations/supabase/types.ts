@@ -14,7 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      employees: {
+        Row: {
+          created_at: string
+          first_name: string
+          full_name: string | null
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          first_name: string
+          full_name?: string | null
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          first_name?: string
+          full_name?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
+      labor_corrections: {
+        Row: {
+          corrected_name: string
+          corrected_type: string | null
+          created_at: string
+          id: string
+          original_name: string
+          original_type: string | null
+        }
+        Insert: {
+          corrected_name: string
+          corrected_type?: string | null
+          created_at?: string
+          id?: string
+          original_name: string
+          original_type?: string | null
+        }
+        Update: {
+          corrected_name?: string
+          corrected_type?: string | null
+          created_at?: string
+          id?: string
+          original_name?: string
+          original_type?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
