@@ -1,1 +1,4 @@
 project_id = "wpqihnrublvubymdkfpr"
+
+[functions.parse-labor]
+verify_jwt = false
