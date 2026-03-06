@@ -129,6 +129,8 @@ async function createSpreadsheet(
 
   if (!res.ok) {
     const err = await res.text();
+    console.error("Full Google API error response:", err);
+    console.error("Response headers:", JSON.stringify(Object.fromEntries(res.headers.entries())));
     throw new Error(`Create spreadsheet failed [${res.status}]: ${err}`);
   }
 
