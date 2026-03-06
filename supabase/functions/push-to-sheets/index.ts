@@ -281,8 +281,8 @@ async function updateRecapSection(
   tabTitle: string,
   allEntries: LaborEntry[]
 ) {
-  // Read column A rows 1-20 to find employee names
-  const range = encodeURIComponent(`${tabTitle}!A1:A20`);
+  // Read columns A through D rows 1-20 to find employee names and existing values
+  const range = encodeURIComponent(`${tabTitle}!A1:D20`);
   const data = await sheetsApi(accessToken, `/values/${range}`);
   const rows: string[][] = data.values || [];
 
@@ -313,28 +313,34 @@ async function updateRecapSection(
     const offHours = offHoursByEmployee.get(nameUpper);
 
     if (regular !== undefined || offHours !== undefined) {
-      // Column C (index 2) = regular hours
-      if (regular !== undefined) {
-        requests.push({
-          updateCells: {
-            rows: [{ values: [{ userEnteredValue: { numberValue: regular } }] }],
-            start: { sheetId, rowIndex: i, columnIndex: 2 }, // Column C
-            fields: "userEnteredValue",
-          },
-        });
-      }
-      // Column D (index 3) = off hours
-      if (offHours !== undefined) {
-        requests.push({
-          updateCells: {
-            rows: [{ values: [{ userEnteredValue: { numberValue: offHours } }] }],
-            start: { sheetId, rowIndex: i, columnIndex: 3 }, // Column D
-            fields: "userEnteredValue",
-          },
-        });
-      }
+      // Read existing values from columns C and D
+      const existingRegular = parseFloat(rows[i]?.[2] || "0") || 0;
+      const existingOffHours = parseFloat(rows[i]?.[3] || "0") || 0;
 
-      console.log(`Recap: ${nameInA} -> Regular: ${regular || 0}, Off Hours: ${offHours || 0}`);
+      // Column C (index 2) = regular hours (accumulate)
+      if (regular !== undefined) {
+        const newTotal = existingRegular + regular;
+        requests.push({
+          updateCells: {
+            rows: [{ values: [{ userEnteredValue: { numberValue: newTotal } }] }],
+            start: { sheetId, rowIndex: i, columnIndex: 2 },
+            fields: "userEnteredValue",
+          },
+        });
+        console.log(`Recap: ${nameInA} Regular: ${existingRegular} + ${regular} = ${newTotal}`);
+      }
+      // Column D (index 3) = off hours (accumulate)
+      if (offHours !== undefined) {
+        const newTotal = existingOffHours + offHours;
+        requests.push({
+          updateCells: {
+            rows: [{ values: [{ userEnteredValue: { numberValue: newTotal } }] }],
+            start: { sheetId, rowIndex: i, columnIndex: 3 },
+            fields: "userEnteredValue",
+          },
+        });
+        console.log(`Recap: ${nameInA} Off Hours: ${existingOffHours} + ${offHours} = ${newTotal}`);
+      }
     }
   }
 
