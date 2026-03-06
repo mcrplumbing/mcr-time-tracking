@@ -314,24 +314,25 @@ async function updateRecapSection(
     const offHours = offHoursByEmployee.get(nameUpper);
 
     if (regular !== undefined || offHours !== undefined) {
-      const cells: any[] = [
-        {}, // Column O - skip (name already there)
-        {}, // Column P - skip (formula)
-        regular !== undefined
-          ? { userEnteredValue: { numberValue: regular } }
-          : {}, // Column Q - Regular
-        offHours !== undefined
-          ? { userEnteredValue: { numberValue: offHours } }
-          : {}, // Column R - Off Hours
-      ];
-
-      requests.push({
-        updateCells: {
-          rows: [{ values: cells }],
-          start: { sheetId, rowIndex: i, columnIndex: 14 }, // Column O = index 14
-          fields: "userEnteredValue",
-        },
-      });
+      // Write only to Q (index 16) and R (index 17), leaving O and P untouched
+      if (regular !== undefined) {
+        requests.push({
+          updateCells: {
+            rows: [{ values: [{ userEnteredValue: { numberValue: regular } }] }],
+            start: { sheetId, rowIndex: i, columnIndex: 16 }, // Column Q
+            fields: "userEnteredValue",
+          },
+        });
+      }
+      if (offHours !== undefined) {
+        requests.push({
+          updateCells: {
+            rows: [{ values: [{ userEnteredValue: { numberValue: offHours } }] }],
+            start: { sheetId, rowIndex: i, columnIndex: 17 }, // Column R
+            fields: "userEnteredValue",
+          },
+        });
+      }
 
       console.log(`Recap: ${nameInO} -> Regular: ${regular || 0}, Off Hours: ${offHours || 0}`);
     }
