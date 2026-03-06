@@ -121,7 +121,7 @@ async function findDaySection(
   accessToken: string,
   tabTitle: string,
   dayName: string
-): Promise<{ headerRow: number; employees: string[]; insertRow: number; existingTotalRow: number | null }> {
+): Promise<{ headerRow: number; employees: string[]; insertRow: number; existingTotalRow: number | null; employeeRow: number }> {
   const range = encodeURIComponent(`${tabTitle}!A1:Z200`);
   const data = await sheetsApi(accessToken, `/values/${range}`);
   const rows: string[][] = data.values || [];
@@ -177,7 +177,7 @@ async function findDaySection(
     insertRow = i + 1;
   }
 
-  return { headerRow, employees, insertRow, existingTotalRow };
+  return { headerRow, employees, insertRow, existingTotalRow, employeeRow };
 }
 
 interface PivotRow {
