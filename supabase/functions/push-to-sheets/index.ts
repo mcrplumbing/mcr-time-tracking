@@ -221,14 +221,15 @@ async function writeJobRows(
 ) {
   const requests: any[] = [];
 
-  // Insert new rows below the header for data
+  // Insert new rows below the header for data + 1 for totals row
+  const totalRows = pivotRows.length + 1;
   requests.push({
     insertDimension: {
       range: {
         sheetId,
         dimension: "ROWS",
         startIndex: insertRow,
-        endIndex: insertRow + pivotRows.length,
+        endIndex: insertRow + totalRows,
       },
       inheritFromBefore: true,
     },
@@ -261,6 +262,32 @@ async function writeJobRows(
     }
     rowData.push({ values: cells });
   }
+
+  // Build totals row with SUM formulas
+  // Data rows are at (insertRow) to (insertRow + pivotRows.length - 1) (0-indexed)
+  // In sheet notation, rows are 1-indexed
+  const firstDataRow = insertRow + 1; // 1-indexed
+  const lastDataRow = insertRow + pivotRows.length; // 1-indexed
+  const boldFmt = {
+    textFormat: {
+      bold: true,
+      fontSize: 12,
+    },
+  };
+  const totalsCells: any[] = [
+    {}, // Column A
+    { userEnteredValue: { stringValue: "TOTAL" }, userEnteredFormat: boldFmt },
+  ];
+  for (let c = 0; c < employees.length; c++) {
+    // Column C = index 2, so employee columns start at column index 2+c
+    const colLetter = String.fromCharCode(67 + c); // C, D, E, F, ...
+    const formula = `=SUM(${colLetter}${firstDataRow}:${colLetter}${lastDataRow})`;
+    totalsCells.push({
+      userEnteredValue: { formulaValue: formula },
+      userEnteredFormat: boldFmt,
+    });
+  }
+  rowData.push({ values: totalsCells });
 
   // Only update values and text format, NOT borders
   requests.push({
