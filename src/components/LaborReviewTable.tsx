@@ -159,10 +159,30 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
             ({flatEntries.length} entries)
           </span>
         </div>
-        <Button variant="outline" size="sm" onClick={exportCSV}>
-          <Download className="h-4 w-4" />
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={exportCSV}>
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button size="sm" onClick={sendToSheets} disabled={isSending}>
+            {isSending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+            {isSending ? "Sending..." : "Send to Sheets"}
+          </Button>
+          {sheetUrl && (
+            <a
+              href={sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+            >
+              Open Sheet <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
       </div>
 
       <p className="text-sm text-muted-foreground">
