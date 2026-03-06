@@ -139,17 +139,30 @@ async function findDaySection(
 
   if (headerRow === -1) throw new Error(`Day "${dayName}" not found in sheet "${tabTitle}"`);
 
-  // Employee names are in the header row, starting from column C (index 2)
-  const headerCells = rows[headerRow] || [];
-  const employees: string[] = [];
-  for (let c = 2; c < headerCells.length; c++) {
-    const name = (headerCells[c] || "").trim();
-    if (name) employees.push(name);
-    else break;
+  // Employee names might be in the day row itself or the row below it
+  // Check both rows and use whichever has names starting from column C
+  let employeeRow = headerRow;
+  let employees: string[] = [];
+
+  for (const candidateRow of [headerRow, headerRow + 1]) {
+    const candidateCells = rows[candidateRow] || [];
+    const candidateNames: string[] = [];
+    for (let c = 2; c < candidateCells.length; c++) {
+      const name = (candidateCells[c] || "").trim();
+      if (name) candidateNames.push(name);
+      else break;
+    }
+    if (candidateNames.length > 0) {
+      employees = candidateNames;
+      employeeRow = candidateRow;
+      break;
+    }
   }
 
-  // Find where to insert: right after header row, or after existing job entries.
-  let insertRow = headerRow + 1;
+  console.log(`Employee names found in row ${employeeRow}: ${employees.join(",")}`);
+
+  // Find where to insert: right after employee header row, or after existing job entries.
+  let insertRow = employeeRow + 1;
 
   // Now find the first empty row in column B (job number column)
   for (let i = insertRow; i < rows.length; i++) {
