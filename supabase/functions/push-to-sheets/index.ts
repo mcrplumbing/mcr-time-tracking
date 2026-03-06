@@ -122,21 +122,17 @@ async function findDaySection(
   tabTitle: string,
   dayName: string
 ): Promise<{ headerRow: number; employees: string[]; insertRow: number }> {
-  // Read columns A through Z to find structure
   const range = encodeURIComponent(`${tabTitle}!A1:Z200`);
   const data = await sheetsApi(accessToken, `/values/${range}`);
   const rows: string[][] = data.values || [];
 
   let headerRow = -1;
-  let nextDayRow = rows.length;
 
   // Find the row with this day name in column A
   for (let i = 0; i < rows.length; i++) {
     const cellA = (rows[i]?.[0] || "").toUpperCase().trim();
     if (cellA.includes(dayName)) {
       headerRow = i;
-    } else if (headerRow >= 0 && cellA.match(/^(MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|WEEKEND|SATURDAY|SUNDAY)/)) {
-      nextDayRow = i;
       break;
     }
   }
@@ -152,19 +148,24 @@ async function findDaySection(
     else break;
   }
 
-  // Find first empty row in column B (JOB#) between header and next day
-  // Start from headerRow + 1 (skip header)
+  // Find where to insert: scan column B starting right after header.
+  // Look for consecutive filled job rows, then insert after them.
+  // Stop at first empty cell in column B (that's our insert point).
   let insertRow = headerRow + 1;
-  for (let i = headerRow + 1; i < nextDayRow; i++) {
-    const cellB = (rows[i]?.[1] || "").trim();
-    if (cellB && cellB !== "JOB#") {
-      insertRow = i + 1; // After the last filled job row
-    }
+
+  // Skip the date row if present (column A has a date, column B is empty)
+  if (rows[insertRow] && (rows[insertRow][0] || "").match(/\d+\/\d+/)) {
+    insertRow++;
   }
 
-  // If no jobs yet, start right after header
-  if (insertRow === headerRow + 1) {
-    insertRow = headerRow + 1;
+  // Now find the first empty row in column B (job number column)
+  for (let i = insertRow; i < rows.length; i++) {
+    const cellB = (rows[i]?.[1] || "").trim();
+    if (!cellB) {
+      insertRow = i;
+      break;
+    }
+    insertRow = i + 1;
   }
 
   return { headerRow, employees, insertRow };
