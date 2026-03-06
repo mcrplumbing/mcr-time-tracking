@@ -221,9 +221,20 @@ async function writeJobRows(
 ) {
   const requests: any[] = [];
 
-  // Write directly into existing empty rows — no row insertion
+  // Insert new rows below the header for data
+  requests.push({
+    insertDimension: {
+      range: {
+        sheetId,
+        dimension: "ROWS",
+        startIndex: insertRow,
+        endIndex: insertRow + pivotRows.length,
+      },
+      inheritFromBefore: true,
+    },
+  });
 
-  // Build cell data - only set values and text color/size, preserve borders
+  // Build cell data
   const rowData: any[] = [];
   for (const pr of pivotRows) {
     const textColor = pr.isOffHours
