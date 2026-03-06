@@ -245,6 +245,9 @@ serve(async (req) => {
 
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
 
+    // Check quota
+    await checkDriveQuota(accessToken);
+
     // Purge all old Drive files to free quota
     console.log("Purging old Drive files to free storage quota...");
     const deletedCount = await purgeAllDriveFiles(accessToken);
