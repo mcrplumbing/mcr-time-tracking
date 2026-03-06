@@ -148,15 +148,8 @@ async function findDaySection(
     else break;
   }
 
-  // Find where to insert: scan column B starting right after header.
-  // Look for consecutive filled job rows, then insert after them.
-  // Stop at first empty cell in column B (that's our insert point).
+  // Find where to insert: right after header row, or after existing job entries.
   let insertRow = headerRow + 1;
-
-  // Skip the date row if present (column A has a date, column B is empty)
-  if (rows[insertRow] && (rows[insertRow][0] || "").match(/\d+\/\d+/)) {
-    insertRow++;
-  }
 
   // Now find the first empty row in column B (job number column)
   for (let i = insertRow; i < rows.length; i++) {
