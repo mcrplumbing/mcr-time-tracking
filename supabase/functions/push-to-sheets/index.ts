@@ -148,15 +148,8 @@ async function findDaySection(
     else break;
   }
 
-  // Find where to insert: scan column B starting right after header.
-  // Look for consecutive filled job rows, then insert after them.
-  // Stop at first empty cell in column B (that's our insert point).
+  // Find where to insert: right after header row, or after existing job entries.
   let insertRow = headerRow + 1;
-
-  // Skip the date row if present (column A has a date, column B is empty)
-  if (rows[insertRow] && (rows[insertRow][0] || "").match(/\d+\/\d+/)) {
-    insertRow++;
-  }
 
   // Now find the first empty row in column B (job number column)
   for (let i = insertRow; i < rows.length; i++) {
@@ -215,7 +208,7 @@ async function writeJobRows(
 ) {
   const requests: any[] = [];
 
-  // Insert empty rows first to make space (shift existing data down)
+  // Insert empty rows to make space, inheriting borders from row above
   requests.push({
     insertDimension: {
       range: {
@@ -224,20 +217,25 @@ async function writeJobRows(
         startIndex: insertRow,
         endIndex: insertRow + pivotRows.length,
       },
-      inheritFromBefore: false,
+      inheritFromBefore: true,
     },
   });
 
-  // Build cell data
+  // Build cell data - only set values and text color/size, preserve borders
   const rowData: any[] = [];
   for (const pr of pivotRows) {
     const textColor = pr.isOffHours
       ? { red: 1, green: 0, blue: 0 }
       : { red: 0, green: 0, blue: 0 };
-    const fmt = { textFormat: { foregroundColorStyle: { rgbColor: textColor } } };
+    const fmt = {
+      textFormat: {
+        foregroundColorStyle: { rgbColor: textColor },
+        fontSize: 12,
+      },
+    };
 
     const cells: any[] = [
-      {}, // Column A - leave blank (day label area)
+      {}, // Column A - leave blank
       { userEnteredValue: { stringValue: pr.job_number }, userEnteredFormat: fmt },
     ];
 
@@ -245,17 +243,18 @@ async function writeJobRows(
       const hrs = pr.hoursByEmployee.get(emp);
       cells.push(hrs
         ? { userEnteredValue: { numberValue: hrs }, userEnteredFormat: fmt }
-        : { userEnteredFormat: fmt }
+        : {}
       );
     }
     rowData.push({ values: cells });
   }
 
+  // Only update values and text format, NOT borders
   requests.push({
     updateCells: {
       rows: rowData,
       start: { sheetId, rowIndex: insertRow, columnIndex: 0 },
-      fields: "userEnteredValue,userEnteredFormat",
+      fields: "userEnteredValue,userEnteredFormat.textFormat",
     },
   });
 
