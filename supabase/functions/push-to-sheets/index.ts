@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,13 +15,8 @@ interface LaborEntry {
   type: string;
 }
 
-function getWeekStart(dateStr?: string): string {
-  const d = dateStr ? new Date(dateStr) : new Date();
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(d.setDate(diff));
-  return monday.toISOString().split("T")[0];
-}
+// Pre-created spreadsheet shared with service account
+const SPREADSHEET_ID = "PLACEHOLDER";
 
 async function getAccessToken(serviceAccountKey: string): Promise<string> {
   const sa = JSON.parse(serviceAccountKey);
@@ -30,7 +24,7 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const claim = {
     iss: sa.client_email,
-    scope: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive",
+    scope: "https://www.googleapis.com/auth/spreadsheets",
     aud: "https://oauth2.googleapis.com/token",
     exp: now + 3600,
     iat: now,
@@ -86,135 +80,84 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
   return tokenData.access_token;
 }
 
-// Check Drive storage quota
-async function checkDriveQuota(accessToken: string): Promise<void> {
-  const res = await fetch("https://www.googleapis.com/drive/v3/about?fields=storageQuota", {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const data = await res.json();
-  console.log("Drive storage quota:", JSON.stringify(data));
-}
-
-// Delete ALL files from service account's Drive to free quota
-async function purgeAllDriveFiles(accessToken: string): Promise<number> {
-  let deleted = 0;
-
-  // First, empty the trash
-  try {
-    const trashRes = await fetch("https://www.googleapis.com/drive/v3/files/emptyTrash", {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    console.log("Empty trash response:", trashRes.status, await trashRes.text());
-  } catch (e) {
-    console.error("Failed to empty trash:", e);
-  }
-
-  // Then list and delete all remaining files (including trashed ones)
-  let pageToken: string | undefined;
-  do {
-    const url = new URL("https://www.googleapis.com/drive/v3/files");
-    url.searchParams.set("pageSize", "100");
-    url.searchParams.set("fields", "nextPageToken,files(id,name,trashed)");
-    url.searchParams.set("q", "trashed=true or trashed=false");
-    if (pageToken) url.searchParams.set("pageToken", pageToken);
-
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("List files failed:", err);
-      break;
-    }
-
-    const data = await res.json();
-    const files = data.files || [];
-    pageToken = data.nextPageToken;
-    console.log(`Found ${files.length} files to delete`);
-
-    for (const file of files) {
-      try {
-        const delRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        await delRes.text(); // consume body
-        if (delRes.ok) {
-          deleted++;
-          console.log(`Deleted: ${file.name} (${file.id})`);
-        }
-      } catch (e) {
-        console.error(`Failed to delete ${file.id}:`, e);
-      }
-    }
-  } while (pageToken);
-
-  return deleted;
-}
-
-const DRIVE_FOLDER_ID = "1YqpqvrEDQ9MkoMljaaB8VAIF4nvPwGMX";
-
-async function createSpreadsheet(
+async function ensureWeekSheet(
   accessToken: string,
-  title: string
-): Promise<{ spreadsheetId: string; spreadsheetUrl: string }> {
-  const driveRes = await fetch("https://www.googleapis.com/drive/v3/files", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      name: title,
-      mimeType: "application/vnd.google-apps.spreadsheet",
-      parents: [DRIVE_FOLDER_ID],
-    }),
-  });
+  weekStart: string
+): Promise<string> {
+  const sheetTitle = `Week ${weekStart}`;
 
-  if (!driveRes.ok) {
-    const err = await driveRes.text();
-    throw new Error(`Create spreadsheet failed [${driveRes.status}]: ${err}`);
+  // Check if sheet tab already exists
+  const metaRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!metaRes.ok) {
+    const err = await metaRes.text();
+    throw new Error(`Failed to read spreadsheet [${metaRes.status}]: ${err}`);
   }
 
-  const driveData = await driveRes.json();
-  const spreadsheetId = driveData.id;
-  const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+  const meta = await metaRes.json();
+  const existingSheet = meta.sheets?.find(
+    (s: any) => s.properties.title === sheetTitle
+  );
+
+  if (existingSheet) {
+    return sheetTitle;
+  }
+
+  // Create new sheet tab with headers
+  const addRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}:batchUpdate`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        requests: [
+          {
+            addSheet: {
+              properties: { title: sheetTitle, index: 0 },
+            },
+          },
+        ],
+      }),
+    }
+  );
+
+  if (!addRes.ok) {
+    const err = await addRes.text();
+    throw new Error(`Failed to add sheet tab [${addRes.status}]: ${err}`);
+  }
 
   // Add headers
-  try {
-    const headerRes = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Sheet1!A1:F1?valueInputOption=USER_ENTERED`,
-      {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          values: [["Job #", "Date", "Day", "Employee", "Hours", "Type"]],
-        }),
-      }
-    );
-    if (!headerRes.ok) {
-      const err = await headerRes.text();
-      console.error("Failed to add headers:", err);
+  await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetTitle)}!A1:F1?valueInputOption=USER_ENTERED`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        values: [["Job #", "Date", "Day", "Employee", "Hours", "Type"]],
+      }),
     }
-  } catch (e) {
-    console.error("Header write error:", e);
-  }
+  );
 
-  return { spreadsheetId, spreadsheetUrl };
+  return sheetTitle;
 }
 
 async function appendRows(
   accessToken: string,
-  spreadsheetId: string,
+  sheetTitle: string,
   rows: string[][]
 ): Promise<void> {
+  const range = encodeURIComponent(`${sheetTitle}!A:F`);
   const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Sheet1!A:F:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
     {
       method: "POST",
       headers: {
@@ -231,6 +174,14 @@ async function appendRows(
   }
 }
 
+function getWeekStart(dateStr?: string): string {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(d.setDate(diff));
+  return monday.toISOString().split("T")[0];
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS")
     return new Response(null, { headers: corsHeaders });
@@ -239,47 +190,18 @@ serve(async (req) => {
     const GOOGLE_SERVICE_ACCOUNT_KEY = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY");
     if (!GOOGLE_SERVICE_ACCOUNT_KEY) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY not configured");
 
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    if (SPREADSHEET_ID === "PLACEHOLDER") {
+      throw new Error("SPREADSHEET_ID not configured - please set the spreadsheet ID");
+    }
 
     const { entries } = (await req.json()) as { entries: LaborEntry[] };
     if (!entries || entries.length === 0) throw new Error("No entries provided");
 
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
-
     const weekStart = getWeekStart(entries[0]?.date);
 
-    // Check if we already have a sheet for this week
-    const { data: existing } = await supabase
-      .from("weekly_sheets")
-      .select("*")
-      .eq("week_start", weekStart)
-      .maybeSingle();
-
-    let spreadsheetId: string;
-    let spreadsheetUrl: string;
-    let isNewSheet = false;
-
-    if (existing) {
-      spreadsheetId = existing.spreadsheet_id;
-      spreadsheetUrl = existing.spreadsheet_url;
-    } else {
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekEnd.getDate() + 6);
-      const title = `MCR Payroll - Week of ${weekStart} to ${weekEnd.toISOString().split("T")[0]}`;
-
-      const result = await createSpreadsheet(accessToken, title);
-      spreadsheetId = result.spreadsheetId;
-      spreadsheetUrl = result.spreadsheetUrl;
-      isNewSheet = true;
-
-      await supabase.from("weekly_sheets").insert({
-        week_start: weekStart,
-        spreadsheet_id: spreadsheetId,
-        spreadsheet_url: spreadsheetUrl,
-      });
-    }
+    // Ensure a tab exists for this week
+    const sheetTitle = await ensureWeekSheet(accessToken, weekStart);
 
     // Append rows
     const rows = entries.map((e) => [
@@ -291,14 +213,17 @@ serve(async (req) => {
       e.type,
     ]);
 
-    await appendRows(accessToken, spreadsheetId, rows);
+    await appendRows(accessToken, sheetTitle, rows);
+
+    const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}`;
 
     return new Response(
       JSON.stringify({
         success: true,
         spreadsheet_url: spreadsheetUrl,
         entries_added: entries.length,
-        is_new_sheet: isNewSheet,
+        week: weekStart,
+        sheet_tab: sheetTitle,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
