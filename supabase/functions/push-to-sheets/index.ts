@@ -121,7 +121,7 @@ async function findDaySection(
   accessToken: string,
   tabTitle: string,
   dayName: string
-): Promise<{ headerRow: number; employees: string[]; insertRow: number; existingTotalRow: number | null }> {
+): Promise<{ headerRow: number; employees: string[]; insertRow: number; existingTotalRow: number | null; employeeRow: number }> {
   const range = encodeURIComponent(`${tabTitle}!A1:Z200`);
   const data = await sheetsApi(accessToken, `/values/${range}`);
   const rows: string[][] = data.values || [];
@@ -177,7 +177,7 @@ async function findDaySection(
     insertRow = i + 1;
   }
 
-  return { headerRow, employees, insertRow, existingTotalRow };
+  return { headerRow, employees, insertRow, existingTotalRow, employeeRow };
 }
 
 interface PivotRow {
@@ -221,7 +221,8 @@ async function writeJobRows(
   insertRow: number,
   pivotRows: PivotRow[],
   employees: string[],
-  existingTotalRow: number | null
+  existingTotalRow: number | null,
+  employeeRow: number
 ) {
   const requests: any[] = [];
 
@@ -281,11 +282,12 @@ async function writeJobRows(
     rowData.push({ values: cells });
   }
 
-  // Build totals row with SUM formulas
-  // Data rows are at (insertRow) to (insertRow + pivotRows.length - 1) (0-indexed)
-  // In sheet notation, rows are 1-indexed
-  const firstDataRow = insertRow + 1; // 1-indexed
+  // Build totals row with SUM formulas covering ALL data rows for this day
+  // First data row is right after the employee name row (employeeRow is 0-indexed, sheets are 1-indexed)
+  const firstDataRow = employeeRow + 2; // 1-indexed, row after employee names
+  // Last data row = insertRow + pivotRows.length (accounts for existing + new rows)
   const lastDataRow = insertRow + pivotRows.length; // 1-indexed
+  console.log(`TOTAL SUM range: row ${firstDataRow} to ${lastDataRow}`);
   const boldFmt = {
     textFormat: {
       bold: true,
@@ -459,7 +461,7 @@ serve(async (req) => {
       const pivotRows = pivotEntries(dayEntries, section.employees);
 
       // Write rows
-      await writeJobRows(accessToken, tab.sheetId, tab.title, section.insertRow, pivotRows, section.employees, section.existingTotalRow);
+      await writeJobRows(accessToken, tab.sheetId, tab.title, section.insertRow, pivotRows, section.employees, section.existingTotalRow, section.employeeRow);
       totalAdded += pivotRows.length;
       console.log(`Inserted ${pivotRows.length} rows into ${dayName}`);
     }
