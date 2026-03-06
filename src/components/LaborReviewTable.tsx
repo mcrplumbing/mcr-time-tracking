@@ -205,7 +205,7 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
             {flatEntries.map((entry) => {
               const key = `${entry.woIndex}-${entry.entryIndex}`;
               return (
-                <TableRow key={key} className="hover:bg-accent/50">
+                <TableRow key={key} className="group hover:bg-accent/50">
                   <TableCell className="font-mono text-sm">
                     {editingCell === cellKey(entry.woIndex, entry.entryIndex, "job") ? (
                       <Input

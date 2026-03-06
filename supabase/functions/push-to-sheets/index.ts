@@ -282,11 +282,12 @@ async function writeJobRows(
     rowData.push({ values: cells });
   }
 
-  // Build totals row with SUM formulas
-  // Data rows are at (insertRow) to (insertRow + pivotRows.length - 1) (0-indexed)
-  // In sheet notation, rows are 1-indexed
-  const firstDataRow = insertRow + 1; // 1-indexed
+  // Build totals row with SUM formulas covering ALL data rows for this day
+  // First data row is right after the employee name row (employeeRow is 0-indexed, sheets are 1-indexed)
+  const firstDataRow = employeeRow + 2; // 1-indexed, row after employee names
+  // Last data row = insertRow + pivotRows.length (accounts for existing + new rows)
   const lastDataRow = insertRow + pivotRows.length; // 1-indexed
+  console.log(`TOTAL SUM range: row ${firstDataRow} to ${lastDataRow}`);
   const boldFmt = {
     textFormat: {
       bold: true,
