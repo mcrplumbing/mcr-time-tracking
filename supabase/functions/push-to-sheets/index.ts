@@ -221,7 +221,8 @@ async function writeJobRows(
   insertRow: number,
   pivotRows: PivotRow[],
   employees: string[],
-  existingTotalRow: number | null
+  existingTotalRow: number | null,
+  employeeRow: number
 ) {
   const requests: any[] = [];
 
