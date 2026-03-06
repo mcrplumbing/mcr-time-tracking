@@ -396,6 +396,9 @@ serve(async (req) => {
       console.log(`Inserted ${pivotRows.length} rows into ${dayName}`);
     }
 
+    // Update recap section with weekly totals
+    await updateRecapSection(accessToken, tab.sheetId, tab.title, entries);
+
     return new Response(
       JSON.stringify({
         success: true,
