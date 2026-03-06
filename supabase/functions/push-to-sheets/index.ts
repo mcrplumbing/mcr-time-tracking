@@ -274,15 +274,15 @@ async function writeJobRows(
   await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
 }
 
-// Update the recap section (columns O-R) with weekly totals per employee
+// Update the recap section (rows 7-17, column C=regular, D=off hours) with weekly totals per employee
 async function updateRecapSection(
   accessToken: string,
   sheetId: number,
   tabTitle: string,
   allEntries: LaborEntry[]
 ) {
-  // Read columns O-R to find employee names and where to write
-  const range = encodeURIComponent(`${tabTitle}!O1:R200`);
+  // Read column A rows 1-20 to find employee names
+  const range = encodeURIComponent(`${tabTitle}!A1:A20`);
   const data = await sheetsApi(accessToken, `/values/${range}`);
   const rows: string[][] = data.values || [];
 
@@ -302,45 +302,45 @@ async function updateRecapSection(
   console.log("Recap - Regular hours:", Object.fromEntries(regularByEmployee));
   console.log("Recap - Off hours:", Object.fromEntries(offHoursByEmployee));
 
-  // Find employee names in column O and write totals to Q and R
   const requests: any[] = [];
 
   for (let i = 0; i < rows.length; i++) {
-    const nameInO = (rows[i]?.[0] || "").trim();
-    if (!nameInO) continue;
+    const nameInA = (rows[i]?.[0] || "").trim();
+    if (!nameInA) continue;
 
-    const nameUpper = nameInO.toUpperCase();
+    const nameUpper = nameInA.toUpperCase();
     const regular = regularByEmployee.get(nameUpper);
     const offHours = offHoursByEmployee.get(nameUpper);
 
     if (regular !== undefined || offHours !== undefined) {
-      // Write only to Q (index 16) and R (index 17), leaving O and P untouched
+      // Column C (index 2) = regular hours
       if (regular !== undefined) {
         requests.push({
           updateCells: {
             rows: [{ values: [{ userEnteredValue: { numberValue: regular } }] }],
-            start: { sheetId, rowIndex: i, columnIndex: 16 }, // Column Q
+            start: { sheetId, rowIndex: i, columnIndex: 2 }, // Column C
             fields: "userEnteredValue",
           },
         });
       }
+      // Column D (index 3) = off hours
       if (offHours !== undefined) {
         requests.push({
           updateCells: {
             rows: [{ values: [{ userEnteredValue: { numberValue: offHours } }] }],
-            start: { sheetId, rowIndex: i, columnIndex: 17 }, // Column R
+            start: { sheetId, rowIndex: i, columnIndex: 3 }, // Column D
             fields: "userEnteredValue",
           },
         });
       }
 
-      console.log(`Recap: ${nameInO} -> Regular: ${regular || 0}, Off Hours: ${offHours || 0}`);
+      console.log(`Recap: ${nameInA} -> Regular: ${regular || 0}, Off Hours: ${offHours || 0}`);
     }
   }
 
   if (requests.length > 0) {
     await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
-    console.log(`Updated recap for ${requests.length} employees`);
+    console.log(`Updated recap for ${requests.length} cells`);
   } else {
     console.log("No matching employees found in recap section");
   }
