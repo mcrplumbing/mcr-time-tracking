@@ -208,18 +208,7 @@ async function writeJobRows(
 ) {
   const requests: any[] = [];
 
-  // Insert empty rows to make space, inheriting borders from row above
-  requests.push({
-    insertDimension: {
-      range: {
-        sheetId,
-        dimension: "ROWS",
-        startIndex: insertRow,
-        endIndex: insertRow + pivotRows.length,
-      },
-      inheritFromBefore: true,
-    },
-  });
+  // Write directly into existing empty rows — no row insertion
 
   // Build cell data - only set values and text color/size, preserve borders
   const rowData: any[] = [];
