@@ -248,17 +248,6 @@ serve(async (req) => {
 
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
 
-    // Check quota
-    await checkDriveQuota(accessToken);
-
-    // Purge all old Drive files to free quota
-    console.log("Purging old Drive files to free storage quota...");
-    const deletedCount = await purgeAllDriveFiles(accessToken);
-    console.log(`Purged ${deletedCount} old files`);
-
-    // Also clear old weekly_sheets records from DB
-    await supabase.from("weekly_sheets").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-
     const weekStart = getWeekStart(entries[0]?.date);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
