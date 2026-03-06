@@ -18,13 +18,6 @@ interface LaborEntry {
 
 const SPREADSHEET_ID = "1ucmQlW-X8uU6SEu0wSY2xEXynVQwgxho_uK3lpEk304";
 
-// Day sections: each day gets 25 rows in the sheet
-const DAY_NAMES = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "WEEKEND"];
-const HEADER_ROWS = 4; // Title rows at top
-const ROWS_PER_DAY = 25;
-const JOB_ROWS_PER_DAY = 18; // Max job rows before totals
-
-// Map day_of_week from parsed data to our day names
 function normalizeDayName(day: string): string {
   const d = day.toUpperCase().trim();
   if (d.startsWith("MON")) return "MONDAY";
@@ -33,46 +26,21 @@ function normalizeDayName(day: string): string {
   if (d.startsWith("THU")) return "THURSDAY";
   if (d.startsWith("FRI")) return "FRIDAY";
   if (d.startsWith("SAT") || d.startsWith("SUN")) return "WEEKEND";
-  return "MONDAY";
+  return d;
 }
 
-function getDayIndex(dayName: string): number {
-  return DAY_NAMES.indexOf(dayName);
-}
-
-// Row where a day's header starts (0-indexed)
-function dayHeaderRow(dayIndex: number): number {
-  return HEADER_ROWS + dayIndex * ROWS_PER_DAY;
-}
-
-function getWeekStart(dateStr?: string): string {
-  const d = dateStr ? new Date(dateStr) : new Date();
+function getWeekEnd(dateStr: string): string {
+  const d = new Date(dateStr);
   const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(d.setDate(diff));
-  return monday.toISOString().split("T")[0];
+  const diff = 7 - day; // days until Sunday
+  const sunday = new Date(d);
+  sunday.setDate(d.getDate() + (day === 0 ? 0 : diff));
+  return sunday.toISOString().split("T")[0];
 }
 
-function getWeekEnd(weekStart: string): string {
-  const d = new Date(weekStart);
-  d.setDate(d.getDate() + 6);
-  return d.toISOString().split("T")[0];
-}
-
-function formatDate(dateStr: string): string {
+function formatDateShort(dateStr: string): string {
   const d = new Date(dateStr);
   return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`;
-}
-
-// Column index to A1 notation letter
-function colLetter(col: number): string {
-  let s = "";
-  let c = col;
-  while (c >= 0) {
-    s = String.fromCharCode(65 + (c % 26)) + s;
-    c = Math.floor(c / 26) - 1;
-  }
-  return s;
 }
 
 async function getAccessToken(serviceAccountKey: string): Promise<string> {
@@ -94,32 +62,20 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
       .replace(/=+$/, "");
 
   const unsignedToken = `${encode(header)}.${encode(claim)}`;
-
   const pemContent = sa.private_key
     .replace(/-----BEGIN PRIVATE KEY-----/, "")
     .replace(/-----END PRIVATE KEY-----/, "")
     .replace(/\n/g, "");
   const binaryKey = Uint8Array.from(atob(pemContent), (c) => c.charCodeAt(0));
-
   const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    binaryKey,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
+    "pkcs8", binaryKey,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]
   );
-
   const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    cryptoKey,
-    new TextEncoder().encode(unsignedToken)
+    "RSASSA-PKCS1-v1_5", cryptoKey, new TextEncoder().encode(unsignedToken)
   );
-
   const sig = btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const jwt = `${unsignedToken}.${sig}`;
 
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -127,238 +83,91 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
   });
-
-  if (!tokenRes.ok) {
-    const err = await tokenRes.text();
-    throw new Error(`Token exchange failed: ${err}`);
-  }
-
-  const tokenData = await tokenRes.json();
-  return tokenData.access_token;
+  if (!tokenRes.ok) throw new Error(`Token exchange failed: ${await tokenRes.text()}`);
+  return (await tokenRes.json()).access_token;
 }
 
-async function sheetsApi(
-  accessToken: string,
-  path: string,
-  method = "GET",
-  body?: unknown
-): Promise<any> {
+async function sheetsApi(accessToken: string, path: string, method = "GET", body?: unknown): Promise<any> {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}${path}`;
   const res = await fetch(url, {
     method,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Sheets API [${res.status}]: ${err}`);
-  }
+  if (!res.ok) throw new Error(`Sheets API [${res.status}]: ${await res.text()}`);
   return res.json();
 }
 
-async function getSheetId(accessToken: string, tabTitle: string): Promise<number | null> {
+// Find the tab and its sheetId
+async function findTab(accessToken: string, tabTitle: string): Promise<{ sheetId: number; title: string } | null> {
   const meta = await sheetsApi(accessToken, "?fields=sheets.properties");
-  const sheet = meta.sheets?.find((s: any) => s.properties.title === tabTitle);
-  return sheet ? sheet.properties.sheetId : null;
+  // Try exact match first, then partial match on "WE"
+  for (const s of meta.sheets || []) {
+    if (s.properties.title === tabTitle) {
+      return { sheetId: s.properties.sheetId, title: s.properties.title };
+    }
+  }
+  // Partial match: find tab containing the date
+  for (const s of meta.sheets || []) {
+    if (s.properties.title.toUpperCase().includes("WE") && s.properties.title.includes(tabTitle.replace("WE ", ""))) {
+      return { sheetId: s.properties.sheetId, title: s.properties.title };
+    }
+  }
+  return null;
 }
 
-async function createWeekTab(
+// Read column A to find day sections and employee header row
+async function findDaySection(
   accessToken: string,
   tabTitle: string,
-  weekStart: string,
-  employees: string[]
-): Promise<number> {
-  // Create the tab
-  const addRes = await sheetsApi(accessToken, ":batchUpdate", "POST", {
-    requests: [{ addSheet: { properties: { title: tabTitle, index: 0 } } }],
-  });
+  dayName: string
+): Promise<{ headerRow: number; employees: string[]; insertRow: number }> {
+  // Read columns A through Z to find structure
+  const range = encodeURIComponent(`${tabTitle}!A1:Z200`);
+  const data = await sheetsApi(accessToken, `/values/${range}`);
+  const rows: string[][] = data.values || [];
 
-  const sheetId = addRes.replies[0].addSheet.properties.sheetId;
-  const weekEnd = getWeekEnd(weekStart);
-  const numCols = 2 + employees.length; // A=day, B=job#, C+=employees
-  const recapCol = numCols + 1; // One gap column
+  let headerRow = -1;
+  let nextDayRow = rows.length;
 
-  // Build all the cell data for the template
-  const requests: any[] = [];
-
-  // --- Title rows ---
-  // Row 0: DAILY TIME TRACKING
-  // Row 1: WE | date | legends
-  // Row 2: blank
-  const titleData = [
-    [{ userEnteredValue: { stringValue: "DAILY TIME TRACKING" }, userEnteredFormat: { textFormat: { bold: true, fontSize: 12 } } }],
-    [
-      { userEnteredValue: { stringValue: "WE" }, userEnteredFormat: { textFormat: { bold: true } } },
-      { userEnteredValue: { stringValue: formatDate(weekEnd) } },
-      {},
-      { userEnteredValue: { stringValue: "BLACK = REGULAR HOURS" }, userEnteredFormat: { textFormat: { bold: true } } },
-      {},
-      { userEnteredValue: { stringValue: "RED = OFF HOURS" }, userEnteredFormat: { textFormat: { bold: true, foregroundColorStyle: { rgbColor: { red: 1, green: 0, blue: 0 } } } } },
-    ],
-    [], // blank row
-  ];
-
-  // --- Day sections ---
-  for (let di = 0; di < DAY_NAMES.length; di++) {
-    const dayName = DAY_NAMES[di];
-    const startRow = dayHeaderRow(di);
-
-    // Calculate date for this day
-    const dayDate = new Date(weekStart);
-    dayDate.setDate(dayDate.getDate() + (di < 5 ? di : 5));
-    const dateStr = formatDate(dayDate.toISOString().split("T")[0]);
-
-    // Header row: DAY date | JOB# | employee names
-    const headerCells: any[] = [
-      { userEnteredValue: { stringValue: `${dayName}` }, userEnteredFormat: { textFormat: { bold: true, fontSize: 10 } } },
-      { userEnteredValue: { stringValue: "JOB#" }, userEnteredFormat: { textFormat: { bold: true } } },
-    ];
-    for (const emp of employees) {
-      headerCells.push({
-        userEnteredValue: { stringValue: emp.toUpperCase() },
-        userEnteredFormat: { textFormat: { bold: true, fontSize: 8 } },
-      });
+  // Find the row with this day name in column A
+  for (let i = 0; i < rows.length; i++) {
+    const cellA = (rows[i]?.[0] || "").toUpperCase().trim();
+    if (cellA.includes(dayName)) {
+      headerRow = i;
+    } else if (headerRow >= 0 && cellA.match(/^(MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|WEEKEND|SATURDAY|SUNDAY)/)) {
+      nextDayRow = i;
+      break;
     }
-
-    // Date under day name
-    const dateRow: any[] = [
-      { userEnteredValue: { stringValue: dateStr }, userEnteredFormat: { textFormat: { fontSize: 8 } } },
-    ];
-
-    // Totals row (with SUM formulas)
-    const totalsRow = dayHeaderRow(di) + JOB_ROWS_PER_DAY + 2;
-    const totalsRowNum = totalsRow + 1; // 1-indexed for formulas
-    const jobStartRowNum = startRow + 2 + 1; // 1-indexed
-    const jobEndRowNum = startRow + JOB_ROWS_PER_DAY + 1 + 1;
-
-    const totalsCells: any[] = [
-      {},
-      {},
-    ];
-    for (let ei = 0; ei < employees.length; ei++) {
-      const col = colLetter(2 + ei);
-      totalsCells.push({
-        userEnteredValue: { formulaValue: `=SUM(${col}${jobStartRowNum}:${col}${jobEndRowNum})` },
-        userEnteredFormat: { textFormat: { bold: true } },
-      });
-    }
-
-    // TIME CLOCK row
-    const timeClockRow = totalsRow + 1;
-    const timeClockCells: any[] = [
-      { userEnteredValue: { stringValue: "TIME CLOCK" }, userEnteredFormat: { textFormat: { bold: true } } },
-    ];
-
-    // Write header
-    requests.push({
-      updateCells: {
-        rows: [{ values: headerCells }],
-        start: { sheetId, rowIndex: startRow, columnIndex: 0 },
-        fields: "userEnteredValue,userEnteredFormat",
-      },
-    });
-
-    // Write date row
-    requests.push({
-      updateCells: {
-        rows: [{ values: dateRow }],
-        start: { sheetId, rowIndex: startRow + 1, columnIndex: 0 },
-        fields: "userEnteredValue,userEnteredFormat",
-      },
-    });
-
-    // Write totals
-    requests.push({
-      updateCells: {
-        rows: [{ values: totalsCells }],
-        start: { sheetId, rowIndex: totalsRow, columnIndex: 0 },
-        fields: "userEnteredValue,userEnteredFormat",
-      },
-    });
-
-    // Write TIME CLOCK
-    requests.push({
-      updateCells: {
-        rows: [{ values: timeClockCells }],
-        start: { sheetId, rowIndex: timeClockRow, columnIndex: 0 },
-        fields: "userEnteredValue,userEnteredFormat",
-      },
-    });
   }
 
-  // --- TIME RECAP section (right side, at Monday's level) ---
-  const recapStartRow = dayHeaderRow(0);
-  const recapHeaders: any[] = [
-    { userEnteredValue: { stringValue: "TIME RECAP" }, userEnteredFormat: { textFormat: { bold: true, fontSize: 10 } } },
-  ];
-  const recapSubHeaders: any[] = [
-    { userEnteredValue: { stringValue: "NAME" }, userEnteredFormat: { textFormat: { bold: true } } },
-    { userEnteredValue: { stringValue: "TOTAL HOURS" }, userEnteredFormat: { textFormat: { bold: true } } },
-    { userEnteredValue: { stringValue: "REG HOURS" }, userEnteredFormat: { textFormat: { bold: true } } },
-    { userEnteredValue: { stringValue: "OFF HOURS" }, userEnteredFormat: { textFormat: { bold: true } } },
-  ];
+  if (headerRow === -1) throw new Error(`Day "${dayName}" not found in sheet "${tabTitle}"`);
 
-  requests.push({
-    updateCells: {
-      rows: [{ values: recapHeaders }],
-      start: { sheetId, rowIndex: recapStartRow, columnIndex: recapCol },
-      fields: "userEnteredValue,userEnteredFormat",
-    },
-  });
-
-  requests.push({
-    updateCells: {
-      rows: [{ values: recapSubHeaders }],
-      start: { sheetId, rowIndex: recapStartRow + 1, columnIndex: recapCol },
-      fields: "userEnteredValue,userEnteredFormat",
-    },
-  });
-
-  // Employee rows in recap - with formulas summing across all day sections
-  const recapRows: any[] = [];
-  for (let ei = 0; ei < employees.length; ei++) {
-    const empCol = colLetter(2 + ei);
-    // Sum all daily totals for this employee
-    const totalParts: string[] = [];
-    for (let di = 0; di < DAY_NAMES.length; di++) {
-      const totalsRow = dayHeaderRow(di) + JOB_ROWS_PER_DAY + 2 + 1; // 1-indexed
-      totalParts.push(`${empCol}${totalsRow}`);
-    }
-    const totalFormula = `=${totalParts.join("+")}`;
-
-    recapRows.push({
-      values: [
-        { userEnteredValue: { stringValue: employees[ei].toUpperCase() } },
-        { userEnteredValue: { formulaValue: totalFormula }, userEnteredFormat: { textFormat: { bold: true } } },
-        { userEnteredValue: { stringValue: "" } }, // REG HOURS - filled manually or with more complex formula
-        { userEnteredValue: { stringValue: "" } }, // OFF HOURS
-      ],
-    });
+  // Employee names are in the header row, starting from column C (index 2)
+  const headerCells = rows[headerRow] || [];
+  const employees: string[] = [];
+  for (let c = 2; c < headerCells.length; c++) {
+    const name = (headerCells[c] || "").trim();
+    if (name) employees.push(name);
+    else break;
   }
 
-  requests.push({
-    updateCells: {
-      rows: recapRows,
-      start: { sheetId, rowIndex: recapStartRow + 2, columnIndex: recapCol },
-      fields: "userEnteredValue,userEnteredFormat",
-    },
-  });
+  // Find first empty row in column B (JOB#) between header and next day
+  // Start from headerRow + 1 (skip header)
+  let insertRow = headerRow + 1;
+  for (let i = headerRow + 1; i < nextDayRow; i++) {
+    const cellB = (rows[i]?.[1] || "").trim();
+    if (cellB && cellB !== "JOB#") {
+      insertRow = i + 1; // After the last filled job row
+    }
+  }
 
-  // Write title rows
-  requests.push({
-    updateCells: {
-      rows: titleData.map((row) => ({ values: row })),
-      start: { sheetId, rowIndex: 0, columnIndex: 0 },
-      fields: "userEnteredValue,userEnteredFormat",
-    },
-  });
+  // If no jobs yet, start right after header
+  if (insertRow === headerRow + 1) {
+    insertRow = headerRow + 1;
+  }
 
-  await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
-
-  return sheetId;
+  return { headerRow, employees, insertRow };
 }
 
 interface PivotRow {
@@ -368,7 +177,6 @@ interface PivotRow {
 }
 
 function pivotEntries(entries: LaborEntry[], employees: string[]): PivotRow[] {
-  // Group by (job_number, type) → pivot employees into columns
   const groups = new Map<string, PivotRow>();
 
   for (const entry of entries) {
@@ -381,80 +189,64 @@ function pivotEntries(entries: LaborEntry[], employees: string[]): PivotRow[] {
       });
     }
     const group = groups.get(key)!;
-    // Match employee by first name (case-insensitive)
-    const empName = entry.employee_name.trim();
-    const matchedEmp = employees.find(
-      (e) => e.toLowerCase() === empName.toLowerCase()
-    );
-    if (matchedEmp) {
-      group.hoursByEmployee.set(matchedEmp, (group.hoursByEmployee.get(matchedEmp) || 0) + entry.hours);
+    // Match employee name case-insensitively
+    const matched = employees.find(e => e.toUpperCase() === entry.employee_name.toUpperCase());
+    if (matched) {
+      group.hoursByEmployee.set(matched, (group.hoursByEmployee.get(matched) || 0) + entry.hours);
     }
   }
 
-  // Sort: regular rows first, then off-hours, grouped by job
   const rows = Array.from(groups.values());
   rows.sort((a, b) => {
     if (a.job_number !== b.job_number) return a.job_number.localeCompare(b.job_number);
-    return a.isOffHours ? 1 : -1;
+    return a.isOffHours ? 1 : -1; // Regular first, then off-hours
   });
-
   return rows;
 }
 
-async function appendJobRows(
+async function writeJobRows(
   accessToken: string,
   sheetId: number,
   tabTitle: string,
-  dayName: string,
+  insertRow: number,
   pivotRows: PivotRow[],
   employees: string[]
 ) {
-  const dayIndex = getDayIndex(dayName);
-  if (dayIndex === -1) throw new Error(`Unknown day: ${dayName}`);
-
-  const sectionStart = dayHeaderRow(dayIndex);
-  const jobStartRow = sectionStart + 2; // After header + date row
-  const maxJobRow = sectionStart + JOB_ROWS_PER_DAY + 1;
-
-  // Read existing data in job area to find first empty row
-  const range = `${tabTitle}!B${jobStartRow + 1}:B${maxJobRow + 1}`;
-  const existing = await sheetsApi(accessToken, `/values/${encodeURIComponent(range)}`);
-  const existingValues = existing.values || [];
-  const firstEmptyOffset = existingValues.findIndex((row: any[]) => !row[0] || row[0] === "");
-  const insertRow = firstEmptyOffset === -1
-    ? jobStartRow + existingValues.length
-    : jobStartRow + firstEmptyOffset;
-
-  if (insertRow + pivotRows.length > maxJobRow) {
-    console.warn(`Not enough space in ${dayName} section. Some rows may overflow.`);
-  }
-
-  // Build cell data and formatting requests
   const requests: any[] = [];
-  const rowData: any[] = [];
 
-  for (let ri = 0; ri < pivotRows.length; ri++) {
-    const pr = pivotRows[ri];
+  // Insert empty rows first to make space (shift existing data down)
+  requests.push({
+    insertDimension: {
+      range: {
+        sheetId,
+        dimension: "ROWS",
+        startIndex: insertRow,
+        endIndex: insertRow + pivotRows.length,
+      },
+      inheritFromBefore: false,
+    },
+  });
+
+  // Build cell data
+  const rowData: any[] = [];
+  for (const pr of pivotRows) {
     const textColor = pr.isOffHours
       ? { red: 1, green: 0, blue: 0 }
       : { red: 0, green: 0, blue: 0 };
+    const fmt = { textFormat: { foregroundColorStyle: { rgbColor: textColor } } };
 
     const cells: any[] = [
-      {}, // Column A (day label area, leave blank)
-      {
-        userEnteredValue: { stringValue: pr.job_number },
-        userEnteredFormat: { textFormat: { foregroundColorStyle: { rgbColor: textColor } } },
-      },
+      {}, // Column A - leave blank (day label area)
+      { userEnteredValue: { stringValue: pr.job_number }, userEnteredFormat: fmt },
     ];
 
     for (const emp of employees) {
       const hrs = pr.hoursByEmployee.get(emp);
-      cells.push({
-        ...(hrs ? { userEnteredValue: { numberValue: hrs } } : {}),
-        userEnteredFormat: { textFormat: { foregroundColorStyle: { rgbColor: textColor } } },
-      });
+      cells.push(hrs
+        ? { userEnteredValue: { numberValue: hrs }, userEnteredFormat: fmt }
+        : { userEnteredFormat: fmt }
+      );
     }
-
     rowData.push({ values: cells });
   }
 
@@ -467,8 +259,6 @@ async function appendJobRows(
   });
 
   await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
-
-  return pivotRows.length;
 }
 
 serve(async (req) => {
@@ -486,26 +276,16 @@ serve(async (req) => {
     const { entries } = (await req.json()) as { entries: LaborEntry[] };
     if (!entries || entries.length === 0) throw new Error("No entries provided");
 
-    // Get employee list from DB
-    const { data: empData } = await supabase
-      .from("employees")
-      .select("first_name")
-      .order("created_at");
-    const employees = (empData || []).map((e: any) => e.first_name);
-    if (employees.length === 0) throw new Error("No employees found in database");
-
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
-    const weekStart = getWeekStart(entries[0]?.date);
-    const tabTitle = `WE ${formatDate(getWeekEnd(weekStart))}`;
 
-    // Ensure week tab exists
-    let sheetId = await getSheetId(accessToken, tabTitle);
-    const isNewTab = sheetId === null;
+    // Determine week ending date and tab name
+    const weekEnd = getWeekEnd(entries[0].date);
+    const tabTitle = `WE ${formatDateShort(weekEnd)}`;
+    console.log(`Looking for tab: ${tabTitle}`);
 
-    if (isNewTab) {
-      console.log(`Creating new tab: ${tabTitle}`);
-      sheetId = await createWeekTab(accessToken, tabTitle, weekStart, employees);
-    }
+    const tab = await findTab(accessToken, tabTitle);
+    if (!tab) throw new Error(`Tab "${tabTitle}" not found. Please create the weekly sheet first.`);
+    console.log(`Found tab: ${tab.title} (sheetId: ${tab.sheetId})`);
 
     // Group entries by day
     const entriesByDay = new Map<string, LaborEntry[]>();
@@ -515,25 +295,29 @@ serve(async (req) => {
       entriesByDay.get(day)!.push(entry);
     }
 
-    // Write each day's data
     let totalAdded = 0;
     for (const [dayName, dayEntries] of entriesByDay) {
-      const pivotRows = pivotEntries(dayEntries, employees);
-      const added = await appendJobRows(accessToken, sheetId!, tabTitle, dayName, pivotRows, employees);
-      totalAdded += added;
-      console.log(`Added ${added} rows to ${dayName}`);
-    }
+      console.log(`Processing ${dayName}: ${dayEntries.length} entries`);
 
-    const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}`;
+      // Find the day section in the sheet
+      const section = await findDaySection(accessToken, tab.title, dayName);
+      console.log(`${dayName}: headerRow=${section.headerRow}, insertRow=${section.insertRow}, employees=${section.employees.join(",")}`);
+
+      // Pivot flat entries into job rows with employee columns
+      const pivotRows = pivotEntries(dayEntries, section.employees);
+
+      // Write rows
+      await writeJobRows(accessToken, tab.sheetId, tab.title, section.insertRow, pivotRows, section.employees);
+      totalAdded += pivotRows.length;
+      console.log(`Inserted ${pivotRows.length} rows into ${dayName}`);
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
-        spreadsheet_url: spreadsheetUrl,
+        spreadsheet_url: `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}`,
         entries_added: totalAdded,
-        is_new_sheet: isNewTab,
-        week: weekStart,
-        tab: tabTitle,
+        tab: tab.title,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
