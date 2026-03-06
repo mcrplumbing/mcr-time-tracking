@@ -154,6 +154,8 @@ async function purgeAllDriveFiles(accessToken: string): Promise<number> {
   return deleted;
 }
 
+const DRIVE_FOLDER_ID = "1YqpqvrEDQ9MkoMljaaB8VAIF4nvPwGMX";
+
 async function createSpreadsheet(
   accessToken: string,
   title: string
@@ -167,6 +169,7 @@ async function createSpreadsheet(
     body: JSON.stringify({
       name: title,
       mimeType: "application/vnd.google-apps.spreadsheet",
+      parents: [DRIVE_FOLDER_ID],
     }),
   });
 
