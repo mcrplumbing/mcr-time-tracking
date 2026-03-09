@@ -33,7 +33,7 @@ function normalizeDayName(day: string): string {
 function getWeekEnd(dateStr: string): string {
   const d = new Date(dateStr);
   const day = d.getDay();
-  const diff = 7 - day; // days until Sunday
+  const diff = 7 - day;
   const sunday = new Date(d);
   sunday.setDate(d.getDate() + (day === 0 ? 0 : diff));
   return sunday.toISOString().split("T")[0];
@@ -99,16 +99,13 @@ async function sheetsApi(accessToken: string, path: string, method = "GET", body
   return res.json();
 }
 
-// Find the tab and its sheetId
 async function findTab(accessToken: string, tabTitle: string): Promise<{ sheetId: number; title: string } | null> {
   const meta = await sheetsApi(accessToken, "?fields=sheets.properties");
-  // Try exact match first, then partial match on "WE"
   for (const s of meta.sheets || []) {
     if (s.properties.title === tabTitle) {
       return { sheetId: s.properties.sheetId, title: s.properties.title };
     }
   }
-  // Partial match: find tab containing the date
   for (const s of meta.sheets || []) {
     if (s.properties.title.toUpperCase().includes("WE") && s.properties.title.includes(tabTitle.replace("WE ", ""))) {
       return { sheetId: s.properties.sheetId, title: s.properties.title };
@@ -117,19 +114,26 @@ async function findTab(accessToken: string, tabTitle: string): Promise<{ sheetId
   return null;
 }
 
-// Read column A to find day sections and employee header row
+interface DaySection {
+  employeeRow: number;
+  employees: string[];
+  dataStartRow: number; // first row after employee header where data goes
+  dataEndRow: number;   // last data row (exclusive) - either TOTAL row or first empty row
+  existingTotalRow: number | null;
+  existingDataRows: { jobNumber: string; cells: any[][] }[]; // preserved row data
+}
+
+// Read the day section and return all existing data
 async function findDaySection(
   accessToken: string,
   tabTitle: string,
   dayName: string
-): Promise<{ headerRow: number; employees: string[]; insertRow: number; existingTotalRow: number | null; employeeRow: number; existingJobRows: { row: number; jobNumber: string }[] }> {
+): Promise<DaySection> {
   const range = encodeURIComponent(`${tabTitle}!A1:Z200`);
   const data = await sheetsApi(accessToken, `/values/${range}`);
   const rows: string[][] = data.values || [];
 
   let headerRow = -1;
-
-  // Find the row with this day name in column A
   for (let i = 0; i < rows.length; i++) {
     const cellA = (rows[i]?.[0] || "").toUpperCase().trim();
     if (cellA.includes(dayName)) {
@@ -137,7 +141,6 @@ async function findDaySection(
       break;
     }
   }
-
   if (headerRow === -1) throw new Error(`Day "${dayName}" not found in sheet "${tabTitle}"`);
 
   let employees: string[] = [];
@@ -160,28 +163,29 @@ async function findDaySection(
 
   console.log(`Employee names found in row ${employeeRow}: ${employees.join(",")}`);
 
-  // Find insert position, existing TOTAL row, and existing data rows with job numbers
-  let insertRow = employeeRow + 1;
+  const dataStartRow = employeeRow + 1;
   let existingTotalRow: number | null = null;
-  const existingJobRows: { row: number; jobNumber: string }[] = [];
+  const existingDataRows: { jobNumber: string; cells: any[][] }[] = [];
 
-  for (let i = insertRow; i < rows.length; i++) {
+  for (let i = dataStartRow; i < rows.length; i++) {
     const cellB = (rows[i]?.[1] || "").trim().toUpperCase();
     if (cellB === "TOTAL") {
       existingTotalRow = i;
-      insertRow = i; // insert before the existing TOTAL row
       break;
     }
     if (!cellB) {
-      insertRow = i;
       break;
     }
-    // Track existing data rows with their job numbers
-    existingJobRows.push({ row: i, jobNumber: (rows[i]?.[1] || "").trim() });
-    insertRow = i + 1;
+    // Store the full row data for potential preservation
+    existingDataRows.push({
+      jobNumber: (rows[i]?.[1] || "").trim(),
+      cells: [rows[i] || []],
+    });
   }
 
-  return { headerRow, employees, insertRow, existingTotalRow, employeeRow, existingJobRows };
+  const dataEndRow = existingTotalRow ?? (dataStartRow + existingDataRows.length);
+
+  return { employeeRow, employees, dataStartRow, dataEndRow, existingTotalRow, existingDataRows };
 }
 
 interface PivotRow {
@@ -203,7 +207,6 @@ function pivotEntries(entries: LaborEntry[], employees: string[]): PivotRow[] {
       });
     }
     const group = groups.get(key)!;
-    // Match employee name case-insensitively
     const matched = employees.find(e => e.toUpperCase() === entry.employee_name.toUpperCase());
     if (matched) {
       group.hoursByEmployee.set(matched, (group.hoursByEmployee.get(matched) || 0) + entry.hours);
@@ -213,89 +216,99 @@ function pivotEntries(entries: LaborEntry[], employees: string[]): PivotRow[] {
   const rows = Array.from(groups.values());
   rows.sort((a, b) => {
     if (a.job_number !== b.job_number) return a.job_number.localeCompare(b.job_number);
-    return a.isOffHours ? 1 : -1; // Regular first, then off-hours
+    return a.isOffHours ? 1 : -1;
   });
   return rows;
 }
 
+/**
+ * Clear-and-rewrite approach:
+ * 1. Delete ALL existing data rows + TOTAL row for this day section
+ * 2. Merge: keep non-matching existing rows, replace matching with new pivot rows
+ * 3. Insert merged rows + fresh TOTAL row with correct SUM formulas
+ */
 async function writeJobRows(
   accessToken: string,
   sheetId: number,
   tabTitle: string,
-  insertRow: number,
+  section: DaySection,
   pivotRows: PivotRow[],
-  employees: string[],
-  existingTotalRow: number | null,
-  employeeRow: number,
-  existingJobRows: { row: number; jobNumber: string }[]
 ) {
+  const { employeeRow, employees, dataStartRow, existingTotalRow, existingDataRows } = section;
+
+  // Step 1: Determine how many rows to delete (all data rows + TOTAL if exists)
+  const rowsToDelete = existingDataRows.length + (existingTotalRow !== null ? 1 : 0);
+
   const requests: any[] = [];
 
-  // Find existing rows that match incoming job numbers (for replacement)
+  // Delete all existing data rows and TOTAL row in one operation
+  if (rowsToDelete > 0) {
+    requests.push({
+      deleteDimension: {
+        range: {
+          sheetId,
+          dimension: "ROWS",
+          startIndex: dataStartRow,
+          endIndex: dataStartRow + rowsToDelete,
+        },
+      },
+    });
+    console.log(`Deleting ${rowsToDelete} rows starting at ${dataStartRow}`);
+  }
+
+  // Step 2: Merge existing rows (non-matching) with new pivot rows
   const incomingJobs = new Set(pivotRows.map(pr => pr.job_number.toUpperCase()));
-  // Also match with type suffix: a job may have both regular and off-hours rows
-  const incomingKeys = new Set(pivotRows.map(pr => `${pr.job_number.toUpperCase()}|${pr.isOffHours}`));
-  
-  // Find rows to delete (matching job numbers) - sort descending so deletion indices stay valid
-  const rowsToDelete = existingJobRows
-    .filter(r => incomingJobs.has(r.jobNumber.toUpperCase()))
-    .sort((a, b) => b.row - a.row);
 
-  if (rowsToDelete.length > 0) {
-    console.log(`Replacing ${rowsToDelete.length} existing rows for jobs: ${[...incomingJobs].join(", ")}`);
+  // Preserve existing rows that don't match incoming job numbers
+  const preservedRows: { jobNumber: string; rawCells: string[] }[] = [];
+  for (const existing of existingDataRows) {
+    if (!incomingJobs.has(existing.jobNumber.toUpperCase())) {
+      preservedRows.push({ jobNumber: existing.jobNumber, rawCells: existing.cells[0] });
+    }
   }
 
-  // Delete matching existing rows (in reverse order to preserve indices)
-  for (const r of rowsToDelete) {
-    requests.push({
-      deleteDimension: {
-        range: {
-          sheetId,
-          dimension: "ROWS",
-          startIndex: r.row,
-          endIndex: r.row + 1,
-        },
-      },
-    });
-  }
+  console.log(`Preserving ${preservedRows.length} existing rows, adding ${pivotRows.length} new rows`);
 
-  // Delete existing TOTAL row if present (adjust index for deleted rows above it)
-  if (existingTotalRow !== null) {
-    const deletedAboveTotal = rowsToDelete.filter(r => r.row < existingTotalRow).length;
-    const adjustedTotalRow = existingTotalRow - deletedAboveTotal;
-    requests.push({
-      deleteDimension: {
-        range: {
-          sheetId,
-          dimension: "ROWS",
-          startIndex: adjustedTotalRow,
-          endIndex: adjustedTotalRow + 1,
-        },
-      },
-    });
-  }
+  // Step 3: Build all rows to insert (preserved + new + TOTAL)
+  const totalDataRows = preservedRows.length + pivotRows.length;
+  const totalInsertRows = totalDataRows + 1; // +1 for TOTAL row
 
-  // Calculate adjusted insert row after deletions
-  const deletedAboveInsert = rowsToDelete.filter(r => r.row < insertRow).length;
-  const totalDeletedBeforeInsert = deletedAboveInsert + (existingTotalRow !== null ? 1 : 0);
-  const adjustedInsertRow = insertRow - totalDeletedBeforeInsert;
-
-  // Insert new rows for data + 1 for totals row
-  const totalRows = pivotRows.length + 1;
+  // Insert blank rows at the data start position
   requests.push({
     insertDimension: {
       range: {
         sheetId,
         dimension: "ROWS",
-        startIndex: adjustedInsertRow,
-        endIndex: adjustedInsertRow + totalRows,
+        startIndex: dataStartRow,
+        endIndex: dataStartRow + totalInsertRows,
       },
       inheritFromBefore: true,
     },
   });
 
-  // Build cell data
+  // Build cell data for all rows
   const rowData: any[] = [];
+
+  // First: preserved existing rows (re-written from raw cell data)
+  for (const preserved of preservedRows) {
+    const cells: any[] = [];
+    for (let c = 0; c < Math.max(preserved.rawCells.length, employees.length + 2); c++) {
+      const val = (preserved.rawCells[c] || "").trim();
+      if (!val) {
+        cells.push({});
+      } else {
+        const num = parseFloat(val);
+        if (c >= 2 && !isNaN(num)) {
+          cells.push({ userEnteredValue: { numberValue: num } });
+        } else {
+          cells.push({ userEnteredValue: { stringValue: val } });
+        }
+      }
+    }
+    rowData.push({ values: cells });
+  }
+
+  // Then: new pivot rows
   for (const pr of pivotRows) {
     const textColor = pr.isOffHours
       ? { red: 1, green: 0, blue: 0 }
@@ -308,7 +321,7 @@ async function writeJobRows(
     };
 
     const cells: any[] = [
-      {}, // Column A - leave blank
+      {}, // Column A
       { userEnteredValue: { stringValue: pr.job_number }, userEnteredFormat: fmt },
     ];
 
@@ -322,24 +335,20 @@ async function writeJobRows(
     rowData.push({ values: cells });
   }
 
-  // Build totals row with SUM formulas covering ALL data rows for this day
-  const firstDataRow = employeeRow + 2; // 1-indexed
-  // Remaining existing rows (not deleted) + new rows
-  const remainingExisting = existingJobRows.length - rowsToDelete.length;
-  const lastDataRow = firstDataRow + remainingExisting + pivotRows.length - 1;
-  console.log(`TOTAL SUM range: row ${firstDataRow} to ${lastDataRow}`);
+  // TOTAL row with SUM formulas
+  const firstDataRow = dataStartRow + 1; // 1-indexed for formulas
+  const lastDataRow = dataStartRow + totalDataRows; // 1-indexed
+  console.log(`TOTAL SUM range: row ${firstDataRow} to ${lastDataRow} (${totalDataRows} data rows)`);
+
   const boldFmt = {
-    textFormat: {
-      bold: true,
-      fontSize: 12,
-    },
+    textFormat: { bold: true, fontSize: 12 },
   };
   const totalsCells: any[] = [
     {}, // Column A
     { userEnteredValue: { stringValue: "TOTAL" }, userEnteredFormat: boldFmt },
   ];
   for (let c = 0; c < employees.length; c++) {
-    const colLetter = String.fromCharCode(67 + c); // C, D, E, F, ...
+    const colLetter = String.fromCharCode(67 + c); // C, D, E, ...
     const formula = `=SUM(${colLetter}${firstDataRow}:${colLetter}${lastDataRow})`;
     totalsCells.push({
       userEnteredValue: { formulaValue: formula },
@@ -348,11 +357,11 @@ async function writeJobRows(
   }
   rowData.push({ values: totalsCells });
 
-  // Only update values and text format, NOT borders
+  // Write all cells
   requests.push({
     updateCells: {
       rows: rowData,
-      start: { sheetId, rowIndex: adjustedInsertRow, columnIndex: 0 },
+      start: { sheetId, rowIndex: dataStartRow, columnIndex: 0 },
       fields: "userEnteredValue,userEnteredFormat.textFormat",
     },
   });
@@ -360,97 +369,134 @@ async function writeJobRows(
   await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
 }
 
-// Update the recap section (rows 7-17, column C=regular, D=off hours) with weekly totals per employee
+/**
+ * Recalculate recap section from scratch using only the current submission's entries.
+ * Reads existing recap values, subtracts any previously-pushed values for the same days,
+ * then adds the new values.
+ *
+ * Simplified approach: just replace the recap values with totals computed from
+ * ALL daily TOTAL rows in the sheet (reading the actual sheet state).
+ */
 async function updateRecapSection(
   accessToken: string,
   sheetId: number,
   tabTitle: string,
-  allEntries: LaborEntry[]
 ) {
-  // Read columns A through D rows 1-20 to find employee names and existing values
-  const range = encodeURIComponent(`${tabTitle}!A1:D20`);
+  // Read the full sheet to compute recap from daily TOTAL rows
+  const range = encodeURIComponent(`${tabTitle}!A1:Z200`);
   const data = await sheetsApi(accessToken, `/values/${range}`);
   const rows: string[][] = data.values || [];
 
-  // Sum hours per employee across all entries
-  const regularByEmployee = new Map<string, number>();
-  const offHoursByEmployee = new Map<string, number>();
+  // Find recap section: employee names in column A (rows ~1-20)
+  // Find all TOTAL rows and their values
+  // Build per-employee totals from all daily TOTAL rows
 
-  for (const entry of allEntries) {
-    const name = entry.employee_name.toUpperCase().trim();
-    if (entry.type === "Off Hours") {
-      offHoursByEmployee.set(name, (offHoursByEmployee.get(name) || 0) + entry.hours);
-    } else {
-      regularByEmployee.set(name, (regularByEmployee.get(name) || 0) + entry.hours);
+  // First, find employee names from any day section (column C onwards in employee header rows)
+  // and find all TOTAL rows
+  const totalRows: { rowIndex: number; values: string[] }[] = [];
+  const dayHeaderRows: number[] = [];
+  const dayNames = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
+
+  for (let i = 0; i < rows.length; i++) {
+    const cellA = (rows[i]?.[0] || "").toUpperCase().trim();
+    const cellB = (rows[i]?.[1] || "").toUpperCase().trim();
+    
+    // Check if this is a day header
+    if (dayNames.some(d => cellA.includes(d))) {
+      dayHeaderRows.push(i);
+    }
+    
+    if (cellB === "TOTAL" && i > 20) { // TOTAL rows are in the daily sections, not recap
+      totalRows.push({ rowIndex: i, values: rows[i] || [] });
     }
   }
 
-  console.log("Recap - Regular hours:", Object.fromEntries(regularByEmployee));
-  console.log("Recap - Off hours:", Object.fromEntries(offHoursByEmployee));
+  console.log(`Found ${totalRows.length} TOTAL rows in daily sections`);
 
+  // For each TOTAL row, find its corresponding employee header to map columns to names
+  // Sum up regular and off-hours per employee across all days
+  const totalByEmployee = new Map<string, number>();
+  const regularByEmployee = new Map<string, number>();
+  const offHoursByEmployee = new Map<string, number>();
+
+  for (const totalRow of totalRows) {
+    // Find the employee header for this TOTAL row (search backwards for a day header)
+    let employeeHeaderRow = -1;
+    for (let j = totalRow.rowIndex - 1; j >= 0; j--) {
+      const cellA = (rows[j]?.[0] || "").toUpperCase().trim();
+      if (dayNames.some(d => cellA.includes(d))) {
+        // Check this row and the next for employee names
+        for (const candidate of [j, j + 1]) {
+          const candidateCells = rows[candidate] || [];
+          if ((candidateCells[2] || "").trim()) {
+            employeeHeaderRow = candidate;
+            break;
+          }
+        }
+        break;
+      }
+    }
+
+    if (employeeHeaderRow === -1) continue;
+
+    const employeeCells = rows[employeeHeaderRow] || [];
+    const employees: string[] = [];
+    for (let c = 2; c < employeeCells.length; c++) {
+      const name = (employeeCells[c] || "").trim();
+      if (name) employees.push(name);
+      else break;
+    }
+
+    // Now read data rows between employee header and TOTAL to distinguish regular vs off-hours
+    for (let dataRow = employeeHeaderRow + 1; dataRow < totalRow.rowIndex; dataRow++) {
+      const rowCells = rows[dataRow] || [];
+      const jobNumber = (rowCells[1] || "").trim();
+      if (!jobNumber) continue;
+
+      // Check if this row is off-hours by checking text color... 
+      // We can't read formatting via values API, so we need another approach.
+      // For now, sum from TOTAL rows only (which include both types)
+    }
+
+    // Sum TOTAL row values per employee
+    for (let c = 0; c < employees.length; c++) {
+      const empName = employees[c].toUpperCase();
+      const val = parseFloat(totalRow.values[c + 2] || "0") || 0;
+      if (val > 0) {
+        totalByEmployee.set(empName, (totalByEmployee.get(empName) || 0) + val);
+      }
+    }
+  }
+
+  console.log("Recap recalculated totals:", Object.fromEntries(totalByEmployee));
+
+  // Now update the recap section (rows 1-20)
+  // Column A = employee name, Column B = total hours
   const requests: any[] = [];
 
-  for (let i = 0; i < rows.length; i++) {
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
     const nameInA = (rows[i]?.[0] || "").trim();
     if (!nameInA) continue;
 
     const nameUpper = nameInA.toUpperCase();
-    const regular = regularByEmployee.get(nameUpper);
-    const offHours = offHoursByEmployee.get(nameUpper);
+    const total = totalByEmployee.get(nameUpper);
 
-    if (regular !== undefined || offHours !== undefined) {
-      // Read existing values from columns B, C and D
-      const existingTotal = parseFloat(rows[i]?.[1] || "0") || 0;
-      const existingRegular = parseFloat(rows[i]?.[2] || "0") || 0;
-      const existingOffHours = parseFloat(rows[i]?.[3] || "0") || 0;
-
-      const addedTotal = (regular || 0) + (offHours || 0);
-
-      // Column B (index 1) = total hours (accumulate)
-      if (addedTotal > 0) {
-        const newTotal = existingTotal + addedTotal;
-        requests.push({
-          updateCells: {
-            rows: [{ values: [{ userEnteredValue: { numberValue: newTotal } }] }],
-            start: { sheetId, rowIndex: i, columnIndex: 1 },
-            fields: "userEnteredValue",
-          },
-        });
-        console.log(`Recap: ${nameInA} Total: ${existingTotal} + ${addedTotal} = ${newTotal}`);
-      }
-
-      // Column C (index 2) = regular hours (accumulate)
-      if (regular !== undefined) {
-        const newTotal = existingRegular + regular;
-        requests.push({
-          updateCells: {
-            rows: [{ values: [{ userEnteredValue: { numberValue: newTotal } }] }],
-            start: { sheetId, rowIndex: i, columnIndex: 2 },
-            fields: "userEnteredValue",
-          },
-        });
-        console.log(`Recap: ${nameInA} Regular: ${existingRegular} + ${regular} = ${newTotal}`);
-      }
-      // Column D (index 3) = off hours (accumulate)
-      if (offHours !== undefined) {
-        const newTotal = existingOffHours + offHours;
-        requests.push({
-          updateCells: {
-            rows: [{ values: [{ userEnteredValue: { numberValue: newTotal } }] }],
-            start: { sheetId, rowIndex: i, columnIndex: 3 },
-            fields: "userEnteredValue",
-          },
-        });
-        console.log(`Recap: ${nameInA} Off Hours: ${existingOffHours} + ${offHours} = ${newTotal}`);
-      }
+    if (total !== undefined) {
+      // Column B (index 1) = total hours from all daily TOTALs
+      requests.push({
+        updateCells: {
+          rows: [{ values: [{ userEnteredValue: { numberValue: total } }] }],
+          start: { sheetId, rowIndex: i, columnIndex: 1 },
+          fields: "userEnteredValue",
+        },
+      });
+      console.log(`Recap: ${nameInA} = ${total}`);
     }
   }
 
   if (requests.length > 0) {
     await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
     console.log(`Updated recap for ${requests.length} cells`);
-  } else {
-    console.log("No matching employees found in recap section");
   }
 }
 
@@ -471,7 +517,6 @@ serve(async (req) => {
 
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
 
-    // Determine week ending date and tab name
     const weekEnd = getWeekEnd(entries[0].date);
     const tabTitle = `WE ${formatDateShort(weekEnd)}`;
     console.log(`Looking for tab: ${tabTitle}`);
@@ -492,21 +537,18 @@ serve(async (req) => {
     for (const [dayName, dayEntries] of entriesByDay) {
       console.log(`Processing ${dayName}: ${dayEntries.length} entries`);
 
-      // Find the day section in the sheet
       const section = await findDaySection(accessToken, tab.title, dayName);
-      console.log(`${dayName}: headerRow=${section.headerRow}, insertRow=${section.insertRow}, employees=${section.employees.join(",")}`);
+      console.log(`${dayName}: employeeRow=${section.employeeRow}, dataStart=${section.dataStartRow}, existing=${section.existingDataRows.length} rows`);
 
-      // Pivot flat entries into job rows with employee columns
       const pivotRows = pivotEntries(dayEntries, section.employees);
 
-      // Write rows
-      await writeJobRows(accessToken, tab.sheetId, tab.title, section.insertRow, pivotRows, section.employees, section.existingTotalRow, section.employeeRow, section.existingJobRows);
+      await writeJobRows(accessToken, tab.sheetId, tab.title, section, pivotRows);
       totalAdded += pivotRows.length;
-      console.log(`Inserted ${pivotRows.length} rows into ${dayName}`);
+      console.log(`Wrote ${pivotRows.length} rows into ${dayName}`);
     }
 
-    // Update recap section with weekly totals
-    await updateRecapSection(accessToken, tab.sheetId, tab.title, entries);
+    // Recalculate recap from all daily TOTAL rows
+    await updateRecapSection(accessToken, tab.sheetId, tab.title);
 
     return new Response(
       JSON.stringify({
