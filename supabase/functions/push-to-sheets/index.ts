@@ -500,7 +500,7 @@ serve(async (req) => {
       const pivotRows = pivotEntries(dayEntries, section.employees);
 
       // Write rows
-      await writeJobRows(accessToken, tab.sheetId, tab.title, section.insertRow, pivotRows, section.employees, section.existingTotalRow, section.employeeRow);
+      await writeJobRows(accessToken, tab.sheetId, tab.title, section.insertRow, pivotRows, section.employees, section.existingTotalRow, section.employeeRow, section.existingJobRows);
       totalAdded += pivotRows.length;
       console.log(`Inserted ${pivotRows.length} rows into ${dayName}`);
     }
