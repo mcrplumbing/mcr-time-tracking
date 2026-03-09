@@ -320,8 +320,9 @@ async function writeJobRows(
       },
     };
 
+    const marker = pr.isOffHours ? "OH" : "R";
     const cells: any[] = [
-      {}, // Column A
+      { userEnteredValue: { stringValue: marker }, userEnteredFormat: fmt }, // Column A: R or OH
       { userEnteredValue: { stringValue: pr.job_number }, userEnteredFormat: fmt },
     ];
 
@@ -413,8 +414,7 @@ async function updateRecapSection(
 
   console.log(`Found ${totalRows.length} TOTAL rows in daily sections`);
 
-  // For each TOTAL row, find its corresponding employee header to map columns to names
-  // Sum up regular and off-hours per employee across all days
+  // For each day section, find employee header and read data rows using column A marker
   const totalByEmployee = new Map<string, number>();
   const regularByEmployee = new Map<string, number>();
   const offHoursByEmployee = new Map<string, number>();
@@ -425,7 +425,6 @@ async function updateRecapSection(
     for (let j = totalRow.rowIndex - 1; j >= 0; j--) {
       const cellA = (rows[j]?.[0] || "").toUpperCase().trim();
       if (dayNames.some(d => cellA.includes(d))) {
-        // Check this row and the next for employee names
         for (const candidate of [j, j + 1]) {
           const candidateCells = rows[candidate] || [];
           if ((candidateCells[2] || "").trim()) {
@@ -447,31 +446,37 @@ async function updateRecapSection(
       else break;
     }
 
-    // Now read data rows between employee header and TOTAL to distinguish regular vs off-hours
+    // Read each data row between employee header and TOTAL row
+    // Use column A marker ("R" or "OH") to classify hours
     for (let dataRow = employeeHeaderRow + 1; dataRow < totalRow.rowIndex; dataRow++) {
       const rowCells = rows[dataRow] || [];
+      const marker = (rowCells[0] || "").trim().toUpperCase();
       const jobNumber = (rowCells[1] || "").trim();
       if (!jobNumber) continue;
 
-      // Check if this row is off-hours by checking text color... 
-      // We can't read formatting via values API, so we need another approach.
-      // For now, sum from TOTAL rows only (which include both types)
-    }
+      const isOffHours = marker === "OH";
 
-    // Sum TOTAL row values per employee
-    for (let c = 0; c < employees.length; c++) {
-      const empName = employees[c].toUpperCase();
-      const val = parseFloat(totalRow.values[c + 2] || "0") || 0;
-      if (val > 0) {
-        totalByEmployee.set(empName, (totalByEmployee.get(empName) || 0) + val);
+      for (let c = 0; c < employees.length; c++) {
+        const empName = employees[c].toUpperCase();
+        const val = parseFloat(rowCells[c + 2] || "0") || 0;
+        if (val > 0) {
+          totalByEmployee.set(empName, (totalByEmployee.get(empName) || 0) + val);
+          if (isOffHours) {
+            offHoursByEmployee.set(empName, (offHoursByEmployee.get(empName) || 0) + val);
+          } else {
+            regularByEmployee.set(empName, (regularByEmployee.get(empName) || 0) + val);
+          }
+        }
       }
     }
   }
 
-  console.log("Recap recalculated totals:", Object.fromEntries(totalByEmployee));
+  console.log("Recap totals:", Object.fromEntries(totalByEmployee));
+  console.log("Recap regular:", Object.fromEntries(regularByEmployee));
+  console.log("Recap off-hours:", Object.fromEntries(offHoursByEmployee));
 
-  // Now update the recap section (rows 1-20)
-  // Column A = employee name, Column B = total hours
+  // Update recap section (rows 1-20)
+  // A=Name, B=Total, C=Regular, D=Off-Hours, E=Sum(C+D) error check
   const requests: any[] = [];
 
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
@@ -482,21 +487,31 @@ async function updateRecapSection(
     const total = totalByEmployee.get(nameUpper);
 
     if (total !== undefined) {
-      // Column B (index 1) = total hours from all daily TOTALs
+      const regular = regularByEmployee.get(nameUpper) || 0;
+      const offHours = offHoursByEmployee.get(nameUpper) || 0;
+      const rowNum = i + 1; // 1-indexed for formula
+
       requests.push({
         updateCells: {
-          rows: [{ values: [{ userEnteredValue: { numberValue: total } }] }],
+          rows: [{
+            values: [
+              { userEnteredValue: { numberValue: total } },        // B: Total
+              { userEnteredValue: { numberValue: regular } },      // C: Regular
+              { userEnteredValue: { numberValue: offHours } },     // D: Off-Hours
+              { userEnteredValue: { formulaValue: `=C${rowNum}+D${rowNum}` } }, // E: Error check
+            ],
+          }],
           start: { sheetId, rowIndex: i, columnIndex: 1 },
           fields: "userEnteredValue",
         },
       });
-      console.log(`Recap: ${nameInA} = ${total}`);
+      console.log(`Recap: ${nameInA} = total:${total}, reg:${regular}, oh:${offHours}`);
     }
   }
 
   if (requests.length > 0) {
     await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
-    console.log(`Updated recap for ${requests.length} cells`);
+    console.log(`Updated recap for ${requests.length} employees`);
   }
 }
 
