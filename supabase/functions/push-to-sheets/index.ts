@@ -320,8 +320,9 @@ async function writeJobRows(
       },
     };
 
+    const marker = pr.isOffHours ? "OH" : "R";
     const cells: any[] = [
-      {}, // Column A
+      { userEnteredValue: { stringValue: marker }, userEnteredFormat: fmt }, // Column A: R or OH
       { userEnteredValue: { stringValue: pr.job_number }, userEnteredFormat: fmt },
     ];
 
