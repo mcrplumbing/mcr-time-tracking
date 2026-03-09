@@ -122,7 +122,7 @@ async function findDaySection(
   accessToken: string,
   tabTitle: string,
   dayName: string
-): Promise<{ headerRow: number; employees: string[]; insertRow: number; existingTotalRow: number | null; employeeRow: number }> {
+): Promise<{ headerRow: number; employees: string[]; insertRow: number; existingTotalRow: number | null; employeeRow: number; existingJobRows: { row: number; jobNumber: string }[] }> {
   const range = encodeURIComponent(`${tabTitle}!A1:Z200`);
   const data = await sheetsApi(accessToken, `/values/${range}`);
   const rows: string[][] = data.values || [];
@@ -160,9 +160,10 @@ async function findDaySection(
 
   console.log(`Employee names found in row ${employeeRow}: ${employees.join(",")}`);
 
-  // Find insert position and check for existing TOTAL row
+  // Find insert position, existing TOTAL row, and existing data rows with job numbers
   let insertRow = employeeRow + 1;
   let existingTotalRow: number | null = null;
+  const existingJobRows: { row: number; jobNumber: string }[] = [];
 
   for (let i = insertRow; i < rows.length; i++) {
     const cellB = (rows[i]?.[1] || "").trim().toUpperCase();
@@ -175,10 +176,12 @@ async function findDaySection(
       insertRow = i;
       break;
     }
+    // Track existing data rows with their job numbers
+    existingJobRows.push({ row: i, jobNumber: (rows[i]?.[1] || "").trim() });
     insertRow = i + 1;
   }
 
-  return { headerRow, employees, insertRow, existingTotalRow, employeeRow };
+  return { headerRow, employees, insertRow, existingTotalRow, employeeRow, existingJobRows };
 }
 
 interface PivotRow {
