@@ -4,23 +4,25 @@ import LaborReviewTable from "@/components/LaborReviewTable";
 import { ParsedWorkOrder } from "@/types/labor";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Wrench } from "lucide-react";
+import { Wrench, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
+  const [isRecalculating, setIsRecalculating] = useState(false);
   const [parsedOrders, setParsedOrders] = useState<ParsedWorkOrder[]>([]);
+  const [recalcTab, setRecalcTab] = useState("");
 
   const handleParse = async (text: string) => {
     setIsLoading(true);
     try {
-      // Fetch corrections for learning
       const { data: corrections } = await supabase
         .from("labor_corrections")
         .select("*");
 
       let workOrderText = text;
       if (corrections && corrections.length > 0) {
-        // Append correction context
         const correctionNotes = corrections
           .filter((c) => c.original_name !== c.corrected_name)
           .map((c) => `"${c.original_name}" should be "${c.corrected_name}"`)
@@ -58,6 +60,27 @@ const Index = () => {
     }
   };
 
+  const handleRecalcRecap = async () => {
+    if (!recalcTab.trim()) {
+      toast.error("Enter a tab name, e.g. WE 3/8/26");
+      return;
+    }
+    setIsRecalculating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("recalc-recap", {
+        body: { tab_name: recalcTab.trim() },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(`Recap updated for ${data.employees_updated} employees on ${data.tab}`);
+    } catch (err: any) {
+      console.error("Recalc error:", err);
+      toast.error(err.message || "Failed to recalculate recap");
+    } finally {
+      setIsRecalculating(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -84,6 +107,31 @@ const Index = () => {
           workOrders={parsedOrders}
           onUpdate={setParsedOrders}
         />
+
+        {/* Recalculate Recap */}
+        <div className="border border-border rounded-lg p-4 bg-card space-y-3">
+          <h2 className="text-sm font-semibold text-foreground">Recalculate Recap</h2>
+          <p className="text-xs text-muted-foreground">
+            Re-read the sheet and update recap totals (Regular / Off-Hours) from column A markers. Useful after manual edits.
+          </p>
+          <div className="flex gap-2 items-center">
+            <Input
+              placeholder="Tab name, e.g. WE 3/8/26"
+              value={recalcTab}
+              onChange={(e) => setRecalcTab(e.target.value)}
+              className="max-w-xs"
+            />
+            <Button
+              onClick={handleRecalcRecap}
+              disabled={isRecalculating}
+              variant="outline"
+              size="sm"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isRecalculating ? "animate-spin" : ""}`} />
+              {isRecalculating ? "Recalculating..." : "Recalculate"}
+            </Button>
+          </div>
+        </div>
       </main>
     </div>
   );
