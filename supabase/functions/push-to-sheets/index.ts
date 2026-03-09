@@ -476,7 +476,7 @@ async function updateRecapSection(
   console.log("Recap off-hours:", Object.fromEntries(offHoursByEmployee));
 
   // Update recap section (rows 1-20)
-  // A=Name, B=Total, C=Regular, D=Off-Hours, E=Sum(C+D) error check
+  // A=Name, B=Total, C=Regular, D=Off-Hours
   const requests: any[] = [];
 
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
@@ -489,7 +489,6 @@ async function updateRecapSection(
     if (total !== undefined) {
       const regular = regularByEmployee.get(nameUpper) || 0;
       const offHours = offHoursByEmployee.get(nameUpper) || 0;
-      const rowNum = i + 1; // 1-indexed for formula
 
       requests.push({
         updateCells: {
@@ -498,7 +497,6 @@ async function updateRecapSection(
               { userEnteredValue: { numberValue: total } },        // B: Total
               { userEnteredValue: { numberValue: regular } },      // C: Regular
               { userEnteredValue: { numberValue: offHours } },     // D: Off-Hours
-              { userEnteredValue: { formulaValue: `=C${rowNum}+D${rowNum}` } }, // E: Error check
             ],
           }],
           start: { sheetId, rowIndex: i, columnIndex: 1 },
