@@ -25,7 +25,8 @@ function normalizeDayName(day: string): string {
   if (d.startsWith("WED")) return "WEDNESDAY";
   if (d.startsWith("THU")) return "THURSDAY";
   if (d.startsWith("FRI")) return "FRIDAY";
-  if (d.startsWith("SAT") || d.startsWith("SUN")) return "WEEKEND";
+  if (d.startsWith("SAT")) return "SATURDAY";
+  if (d.startsWith("SUN")) return "SUNDAY";
   return d;
 }
 
