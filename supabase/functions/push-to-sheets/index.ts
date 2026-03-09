@@ -122,7 +122,7 @@ async function findDaySection(
   accessToken: string,
   tabTitle: string,
   dayName: string
-): Promise<{ headerRow: number; employees: string[]; insertRow: number; existingTotalRow: number | null; employeeRow: number }> {
+): Promise<{ headerRow: number; employees: string[]; insertRow: number; existingTotalRow: number | null; employeeRow: number; existingJobRows: { row: number; jobNumber: string }[] }> {
   const range = encodeURIComponent(`${tabTitle}!A1:Z200`);
   const data = await sheetsApi(accessToken, `/values/${range}`);
   const rows: string[][] = data.values || [];
@@ -160,9 +160,10 @@ async function findDaySection(
 
   console.log(`Employee names found in row ${employeeRow}: ${employees.join(",")}`);
 
-  // Find insert position and check for existing TOTAL row
+  // Find insert position, existing TOTAL row, and existing data rows with job numbers
   let insertRow = employeeRow + 1;
   let existingTotalRow: number | null = null;
+  const existingJobRows: { row: number; jobNumber: string }[] = [];
 
   for (let i = insertRow; i < rows.length; i++) {
     const cellB = (rows[i]?.[1] || "").trim().toUpperCase();
@@ -175,10 +176,12 @@ async function findDaySection(
       insertRow = i;
       break;
     }
+    // Track existing data rows with their job numbers
+    existingJobRows.push({ row: i, jobNumber: (rows[i]?.[1] || "").trim() });
     insertRow = i + 1;
   }
 
-  return { headerRow, employees, insertRow, existingTotalRow, employeeRow };
+  return { headerRow, employees, insertRow, existingTotalRow, employeeRow, existingJobRows };
 }
 
 interface PivotRow {
@@ -223,33 +226,69 @@ async function writeJobRows(
   pivotRows: PivotRow[],
   employees: string[],
   existingTotalRow: number | null,
-  employeeRow: number
+  employeeRow: number,
+  existingJobRows: { row: number; jobNumber: string }[]
 ) {
   const requests: any[] = [];
 
-  // Delete existing TOTAL row first if present
-  if (existingTotalRow !== null) {
+  // Find existing rows that match incoming job numbers (for replacement)
+  const incomingJobs = new Set(pivotRows.map(pr => pr.job_number.toUpperCase()));
+  // Also match with type suffix: a job may have both regular and off-hours rows
+  const incomingKeys = new Set(pivotRows.map(pr => `${pr.job_number.toUpperCase()}|${pr.isOffHours}`));
+  
+  // Find rows to delete (matching job numbers) - sort descending so deletion indices stay valid
+  const rowsToDelete = existingJobRows
+    .filter(r => incomingJobs.has(r.jobNumber.toUpperCase()))
+    .sort((a, b) => b.row - a.row);
+
+  if (rowsToDelete.length > 0) {
+    console.log(`Replacing ${rowsToDelete.length} existing rows for jobs: ${[...incomingJobs].join(", ")}`);
+  }
+
+  // Delete matching existing rows (in reverse order to preserve indices)
+  for (const r of rowsToDelete) {
     requests.push({
       deleteDimension: {
         range: {
           sheetId,
           dimension: "ROWS",
-          startIndex: existingTotalRow,
-          endIndex: existingTotalRow + 1,
+          startIndex: r.row,
+          endIndex: r.row + 1,
         },
       },
     });
   }
 
-  // Insert new rows below the header for data + 1 for totals row
+  // Delete existing TOTAL row if present (adjust index for deleted rows above it)
+  if (existingTotalRow !== null) {
+    const deletedAboveTotal = rowsToDelete.filter(r => r.row < existingTotalRow).length;
+    const adjustedTotalRow = existingTotalRow - deletedAboveTotal;
+    requests.push({
+      deleteDimension: {
+        range: {
+          sheetId,
+          dimension: "ROWS",
+          startIndex: adjustedTotalRow,
+          endIndex: adjustedTotalRow + 1,
+        },
+      },
+    });
+  }
+
+  // Calculate adjusted insert row after deletions
+  const deletedAboveInsert = rowsToDelete.filter(r => r.row < insertRow).length;
+  const totalDeletedBeforeInsert = deletedAboveInsert + (existingTotalRow !== null ? 1 : 0);
+  const adjustedInsertRow = insertRow - totalDeletedBeforeInsert;
+
+  // Insert new rows for data + 1 for totals row
   const totalRows = pivotRows.length + 1;
   requests.push({
     insertDimension: {
       range: {
         sheetId,
         dimension: "ROWS",
-        startIndex: insertRow,
-        endIndex: insertRow + totalRows,
+        startIndex: adjustedInsertRow,
+        endIndex: adjustedInsertRow + totalRows,
       },
       inheritFromBefore: true,
     },
@@ -284,10 +323,10 @@ async function writeJobRows(
   }
 
   // Build totals row with SUM formulas covering ALL data rows for this day
-  // First data row is right after the employee name row (employeeRow is 0-indexed, sheets are 1-indexed)
-  const firstDataRow = employeeRow + 2; // 1-indexed, row after employee names
-  // Last data row = insertRow + pivotRows.length (accounts for existing + new rows)
-  const lastDataRow = insertRow + pivotRows.length; // 1-indexed
+  const firstDataRow = employeeRow + 2; // 1-indexed
+  // Remaining existing rows (not deleted) + new rows
+  const remainingExisting = existingJobRows.length - rowsToDelete.length;
+  const lastDataRow = firstDataRow + remainingExisting + pivotRows.length - 1;
   console.log(`TOTAL SUM range: row ${firstDataRow} to ${lastDataRow}`);
   const boldFmt = {
     textFormat: {
@@ -300,7 +339,6 @@ async function writeJobRows(
     { userEnteredValue: { stringValue: "TOTAL" }, userEnteredFormat: boldFmt },
   ];
   for (let c = 0; c < employees.length; c++) {
-    // Column C = index 2, so employee columns start at column index 2+c
     const colLetter = String.fromCharCode(67 + c); // C, D, E, F, ...
     const formula = `=SUM(${colLetter}${firstDataRow}:${colLetter}${lastDataRow})`;
     totalsCells.push({
@@ -314,7 +352,7 @@ async function writeJobRows(
   requests.push({
     updateCells: {
       rows: rowData,
-      start: { sheetId, rowIndex: insertRow, columnIndex: 0 },
+      start: { sheetId, rowIndex: adjustedInsertRow, columnIndex: 0 },
       fields: "userEnteredValue,userEnteredFormat.textFormat",
     },
   });
@@ -462,7 +500,7 @@ serve(async (req) => {
       const pivotRows = pivotEntries(dayEntries, section.employees);
 
       // Write rows
-      await writeJobRows(accessToken, tab.sheetId, tab.title, section.insertRow, pivotRows, section.employees, section.existingTotalRow, section.employeeRow);
+      await writeJobRows(accessToken, tab.sheetId, tab.title, section.insertRow, pivotRows, section.employees, section.existingTotalRow, section.employeeRow, section.existingJobRows);
       totalAdded += pivotRows.length;
       console.log(`Inserted ${pivotRows.length} rows into ${dayName}`);
     }
