@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ParsedWorkOrder, LaborEntry } from "@/types/labor";
+import { ParsedWorkOrder, LaborEntry, ValidationFlag } from "@/types/labor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,16 +17,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CheckCircle, Download, Pencil, Trash2, Send, ExternalLink, Loader2 } from "lucide-react";
+import { CheckCircle, Download, Pencil, Trash2, Send, ExternalLink, Loader2, AlertTriangle, AlertCircle, Info } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 interface LaborReviewTableProps {
   workOrders: ParsedWorkOrder[];
   onUpdate: (workOrders: ParsedWorkOrder[]) => void;
+  flags?: ValidationFlag[];
 }
 
-const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
+const confidenceColors: Record<string, string> = {
+  high: "",
+  medium: "bg-yellow-50 dark:bg-yellow-950/20",
+  low: "bg-red-50 dark:bg-red-950/20",
+};
+
+const confidenceBadge: Record<string, { label: string; className: string }> = {
+  high: { label: "High", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" },
+  medium: { label: "Med", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" },
+  low: { label: "Low", className: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" },
+};
+
+const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTableProps) => {
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sheetUrl, setSheetUrl] = useState<string | null>(null);
@@ -89,7 +102,7 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
   };
 
   const exportCSV = () => {
-    const headers = ["Job #", "Date", "Day", "Employee", "Hours", "Type"];
+    const headers = ["Job #", "Date", "Day", "Employee", "Hours", "Type", "Confidence"];
     const rows = flatEntries.map((e) => [
       e.job_number,
       e.date,
@@ -97,6 +110,7 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
       e.employee_name,
       e.hours,
       e.type,
+      e.confidence || "high",
     ]);
 
     const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
@@ -146,8 +160,64 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
 
   if (flatEntries.length === 0) return null;
 
+  // Group flags by level for the banner
+  const errors = flags.filter((f) => f.level === "error");
+  const warnings = flags.filter((f) => f.level === "warning");
+  const infos = flags.filter((f) => f.level === "info");
+
   return (
     <div className="space-y-4">
+      {/* Validation flags banner */}
+      {flags.length > 0 && (
+        <div className="space-y-2">
+          {errors.length > 0 && (
+            <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900/50 p-3">
+              <div className="flex items-center gap-2 mb-1">
+                <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                <span className="text-sm font-semibold text-red-800 dark:text-red-300">
+                  {errors.length} error{errors.length !== 1 ? "s" : ""} — review before sending
+                </span>
+              </div>
+              <ul className="text-sm text-red-700 dark:text-red-400 space-y-0.5 ml-6">
+                {errors.map((f, i) => (
+                  <li key={i}>{f.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {warnings.length > 0 && (
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20 dark:border-yellow-900/50 p-3">
+              <div className="flex items-center gap-2 mb-1">
+                <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                <span className="text-sm font-semibold text-yellow-800 dark:text-yellow-300">
+                  {warnings.length} warning{warnings.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <ul className="text-sm text-yellow-700 dark:text-yellow-400 space-y-0.5 ml-6">
+                {warnings.map((f, i) => (
+                  <li key={i}>{f.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {infos.length > 0 && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900/50 p-3">
+              <div className="flex items-center gap-2 mb-1">
+                <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                <span className="text-sm font-semibold text-blue-800 dark:text-blue-300">
+                  {infos.length} note{infos.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <ul className="text-sm text-blue-700 dark:text-blue-400 space-y-0.5 ml-6">
+                {infos.map((f, i) => (
+                  <li key={i}>{f.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <CheckCircle className="h-5 w-5 text-primary" />
@@ -186,6 +256,7 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
 
       <p className="text-sm text-muted-foreground">
         Click any cell to edit. Corrections are remembered for future parsing.
+        {flags.length > 0 && " Rows are color-coded by confidence."}
       </p>
 
       <div className="rounded-lg border border-border overflow-hidden">
@@ -198,14 +269,18 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
               <TableHead className="font-semibold">Employee</TableHead>
               <TableHead className="font-semibold">Hours</TableHead>
               <TableHead className="font-semibold">Type</TableHead>
+              <TableHead className="font-semibold w-16">Conf.</TableHead>
               <TableHead className="w-10"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {flatEntries.map((entry) => {
               const key = `${entry.woIndex}-${entry.entryIndex}`;
+              const conf = entry.confidence || "high";
+              const rowBg = confidenceColors[conf] || "";
+              const badge = confidenceBadge[conf];
               return (
-                <TableRow key={key} className="group hover:bg-accent/50">
+                <TableRow key={key} className={`group hover:bg-accent/50 ${rowBg}`}>
                   <TableCell className="font-mono text-sm">
                     {editingCell === cellKey(entry.woIndex, entry.entryIndex, "job") ? (
                       <Input
@@ -312,13 +387,20 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
                         }}
                       />
                     ) : (
-                      <span
-                        className="cursor-pointer hover:text-primary flex items-center gap-1"
-                        onClick={() => setEditingCell(cellKey(entry.woIndex, entry.entryIndex, "name"))}
-                      >
-                        {entry.employee_name}
-                        <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100" />
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span
+                          className="cursor-pointer hover:text-primary flex items-center gap-1"
+                          onClick={() => setEditingCell(cellKey(entry.woIndex, entry.entryIndex, "name"))}
+                        >
+                          {entry.employee_name}
+                          <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100" />
+                        </span>
+                        {entry.original_name && entry.original_name !== entry.employee_name && (
+                          <span className="text-xs text-muted-foreground" title={`Originally: "${entry.original_name}"`}>
+                            (was "{entry.original_name}")
+                          </span>
+                        )}
+                      </div>
                     )}
                   </TableCell>
                   <TableCell>
@@ -340,7 +422,7 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
                       />
                     ) : (
                       <span
-                        className="cursor-pointer hover:text-primary font-medium"
+                        className={`cursor-pointer hover:text-primary font-medium ${entry.hours > 16 ? "text-yellow-600 dark:text-yellow-400" : ""}`}
                         onClick={() => setEditingCell(cellKey(entry.woIndex, entry.entryIndex, "hours"))}
                       >
                         {entry.hours}
@@ -362,6 +444,13 @@ const LaborReviewTable = ({ workOrders, onUpdate }: LaborReviewTableProps) => {
                         <SelectItem value="Off Hours">Off Hours</SelectItem>
                       </SelectContent>
                     </Select>
+                  </TableCell>
+                  <TableCell>
+                    {badge && (
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${badge.className}`}>
+                        {badge.label}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Button

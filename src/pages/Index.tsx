@@ -1,7 +1,7 @@
 import { useState } from "react";
 import WorkOrderInput from "@/components/WorkOrderInput";
 import LaborReviewTable from "@/components/LaborReviewTable";
-import { ParsedWorkOrder } from "@/types/labor";
+import { ParsedWorkOrder, ValidationFlag } from "@/types/labor";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Wrench, RefreshCw } from "lucide-react";
@@ -12,10 +12,12 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [parsedOrders, setParsedOrders] = useState<ParsedWorkOrder[]>([]);
+  const [parseFlags, setParseFlags] = useState<ValidationFlag[]>([]);
   const [recalcTab, setRecalcTab] = useState("");
 
   const handleParse = async (text: string) => {
     setIsLoading(true);
+    setParseFlags([]);
     try {
       const { data: corrections } = await supabase
         .from("labor_corrections")
@@ -39,7 +41,9 @@ const Index = () => {
       if (error) throw error;
 
       const orders = data?.work_orders || [];
+      const flags: ValidationFlag[] = data?.flags || [];
       setParsedOrders(orders);
+      setParseFlags(flags);
 
       if (orders.length === 0) {
         toast.warning("No labor data found in the work orders");
@@ -48,9 +52,19 @@ const Index = () => {
           (sum: number, wo: ParsedWorkOrder) => sum + wo.entries.length,
           0
         );
-        toast.success(
-          `Parsed ${totalEntries} labor entries from ${orders.length} work order(s)`
-        );
+        if (data?.needsReview) {
+          toast.warning(
+            `Parsed ${totalEntries} entries — ${data.summary.errors} error(s), ${data.summary.warnings} warning(s). Review before sending.`
+          );
+        } else if (flags.length > 0) {
+          toast.info(
+            `Parsed ${totalEntries} entries with ${flags.length} note(s). Check flagged items.`
+          );
+        } else {
+          toast.success(
+            `Parsed ${totalEntries} labor entries from ${orders.length} work order(s)`
+          );
+        }
       }
     } catch (err) {
       console.error("Parse error:", err);
@@ -106,6 +120,7 @@ const Index = () => {
         <LaborReviewTable
           workOrders={parsedOrders}
           onUpdate={setParsedOrders}
+          flags={parseFlags}
         />
 
         {/* Recalculate Recap */}
