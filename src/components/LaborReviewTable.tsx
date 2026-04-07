@@ -50,6 +50,7 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
       job_number: wo.job_number,
       date: wo.date,
       day_of_week: wo.day_of_week,
+      customer: wo.customer || "",
       ...entry,
     }))
   );
@@ -102,9 +103,10 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
   };
 
   const exportCSV = () => {
-    const headers = ["Job #", "Date", "Day", "Employee", "Hours", "Type", "Confidence"];
+    const headers = ["Job #", "Customer", "Date", "Day", "Employee", "Hours", "Type", "Confidence"];
     const rows = flatEntries.map((e) => [
       e.job_number,
+      e.customer,
       e.date,
       e.day_of_week,
       e.employee_name,
@@ -129,6 +131,7 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
     try {
       const entries = flatEntries.map((e) => ({
         job_number: e.job_number,
+        customer: e.customer,
         date: e.date,
         day_of_week: e.day_of_week,
         employee_name: e.employee_name,
@@ -264,6 +267,7 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
           <TableHeader>
             <TableRow className="bg-primary/5">
               <TableHead className="font-semibold">Job #</TableHead>
+              <TableHead className="font-semibold">Customer</TableHead>
               <TableHead className="font-semibold">Date</TableHead>
               <TableHead className="font-semibold">Day</TableHead>
               <TableHead className="font-semibold">Employee</TableHead>
@@ -308,6 +312,36 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
                         onClick={() => setEditingCell(cellKey(entry.woIndex, entry.entryIndex, "job"))}
                       >
                         {entry.job_number}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {editingCell === cellKey(entry.woIndex, entry.entryIndex, "customer") ? (
+                      <Input
+                        defaultValue={entry.customer}
+                        autoFocus
+                        className="h-8 w-24"
+                        onBlur={(e) => {
+                          const updated = [...workOrders];
+                          updated[entry.woIndex].customer = e.target.value;
+                          onUpdate(updated);
+                          setEditingCell(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const updated = [...workOrders];
+                            updated[entry.woIndex].customer = (e.target as HTMLInputElement).value;
+                            onUpdate(updated);
+                            setEditingCell(null);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:text-primary"
+                        onClick={() => setEditingCell(cellKey(entry.woIndex, entry.entryIndex, "customer"))}
+                      >
+                        {entry.customer || "—"}
                       </span>
                     )}
                   </TableCell>
