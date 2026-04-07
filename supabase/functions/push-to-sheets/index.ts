@@ -204,8 +204,17 @@ async function findDaySection(
 interface PivotRow {
   job_number: string;
   customer: string;
-  isOffHours: boolean;
+  entryType: string; // "Regular", "Off Hours", "Vacation", "Sick"
   hoursByEmployee: Map<string, number>;
+}
+
+function typeToMarker(type: string): string {
+  switch (type) {
+    case "Off Hours": return "OH";
+    case "Vacation": return "V";
+    case "Sick": return "S";
+    default: return "R";
+  }
 }
 
 function pivotEntries(entries: LaborEntry[], employees: string[]): PivotRow[] {
@@ -217,7 +226,7 @@ function pivotEntries(entries: LaborEntry[], employees: string[]): PivotRow[] {
       groups.set(key, {
         job_number: entry.job_number,
         customer: entry.customer || "",
-        isOffHours: entry.type === "Off Hours",
+        entryType: entry.type,
         hoursByEmployee: new Map(),
       });
     }
@@ -232,7 +241,7 @@ function pivotEntries(entries: LaborEntry[], employees: string[]): PivotRow[] {
   const rows = Array.from(groups.values());
   rows.sort((a, b) => {
     if (a.job_number !== b.job_number) return a.job_number.localeCompare(b.job_number);
-    return a.isOffHours ? 1 : -1;
+    return a.entryType.localeCompare(b.entryType);
   });
   return rows;
 }
