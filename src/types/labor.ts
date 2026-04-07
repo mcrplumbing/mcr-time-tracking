@@ -13,6 +13,7 @@ export interface ParsedWorkOrder {
   job_number: string;
   date: string;
   day_of_week: string;
+  customer: string;
   entries: LaborEntry[];
 }
 
