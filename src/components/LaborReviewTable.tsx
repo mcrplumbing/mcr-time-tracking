@@ -316,6 +316,36 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
                     )}
                   </TableCell>
                   <TableCell className="text-sm">
+                    {editingCell === cellKey(entry.woIndex, entry.entryIndex, "customer") ? (
+                      <Input
+                        defaultValue={entry.customer}
+                        autoFocus
+                        className="h-8 w-24"
+                        onBlur={(e) => {
+                          const updated = [...workOrders];
+                          updated[entry.woIndex].customer = e.target.value;
+                          onUpdate(updated);
+                          setEditingCell(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const updated = [...workOrders];
+                            updated[entry.woIndex].customer = (e.target as HTMLInputElement).value;
+                            onUpdate(updated);
+                            setEditingCell(null);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:text-primary"
+                        onClick={() => setEditingCell(cellKey(entry.woIndex, entry.entryIndex, "customer"))}
+                      >
+                        {entry.customer || "—"}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm">
                     {editingCell === cellKey(entry.woIndex, entry.entryIndex, "date") ? (
                       <Input
                         defaultValue={entry.date}
