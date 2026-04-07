@@ -181,9 +181,17 @@ CRITICAL RULES:
     const flags: ValidationFlag[] = [];
     let needsReview = false;
 
+    // Apply customer mappings post-parse
+    const mappingLookup = new Map(mappings.map(m => [m.keyword.toUpperCase(), m.customer_name]));
+
     for (let woIdx = 0; woIdx < workOrdersArr.length; woIdx++) {
       const wo = workOrdersArr[woIdx];
 
+      // Normalize customer via mappings
+      if (wo.customer) {
+        const mapped = mappingLookup.get(wo.customer.toUpperCase());
+        if (mapped) wo.customer = mapped;
+      }
       if (wo.date && !/^\d{4}-\d{2}-\d{2}$/.test(wo.date)) {
         flags.push({
           level: "warning",
