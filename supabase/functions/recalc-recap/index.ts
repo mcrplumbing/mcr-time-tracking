@@ -8,6 +8,10 @@ const corsHeaders = {
 
 const SPREADSHEET_ID = "1ucmQlW-X8uU6SEu0wSY2xEXynVQwgxho_uK3lpEk304";
 
+// Column layout (new):
+// A = R/OH marker, B = Customer, C = Job #, D+ = Employees
+// Recap: C = Name (index 2), D = Total, E = Reg, F = Off, G = Total
+
 async function getAccessToken(serviceAccountKey: string): Promise<string> {
   const sa = JSON.parse(serviceAccountKey);
   const header = { alg: "RS256", typ: "JWT" };
@@ -95,18 +99,17 @@ serve(async (req) => {
     if (!tab) throw new Error(`Tab "${tab_name}" not found`);
     console.log(`Recalculating recap for tab: ${tab.title}`);
 
-    // Read full sheet
     const range = encodeURIComponent(`${tab.title}!A1:Z200`);
     const data = await sheetsApi(accessToken, `/values/${range}`);
     const rows: string[][] = data.values || [];
 
     const dayNames = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
 
-    // Find all TOTAL rows
+    // Find all TOTAL rows — TOTAL is now in column C (index 2)
     const totalRows: { rowIndex: number; values: string[] }[] = [];
     for (let i = 0; i < rows.length; i++) {
-      const cellB = (rows[i]?.[1] || "").toUpperCase().trim();
-      if (cellB === "TOTAL" && i > 20) {
+      const cellC = (rows[i]?.[2] || "").toUpperCase().trim();
+      if (cellC === "TOTAL" && i > 20) {
         totalRows.push({ rowIndex: i, values: rows[i] || [] });
       }
     }
@@ -124,7 +127,8 @@ serve(async (req) => {
         if (dayNames.some(d => cellA.includes(d))) {
           for (const candidate of [j, j + 1]) {
             const candidateCells = rows[candidate] || [];
-            if ((candidateCells[2] || "").trim()) {
+            // Employee names start at column D (index 3)
+            if ((candidateCells[3] || "").trim()) {
               employeeHeaderRow = candidate;
               break;
             }
@@ -137,24 +141,26 @@ serve(async (req) => {
 
       const employeeCells = rows[employeeHeaderRow] || [];
       const employees: string[] = [];
-      for (let c = 2; c < employeeCells.length; c++) {
+      // Employee names start at column D (index 3)
+      for (let c = 3; c < employeeCells.length; c++) {
         const name = (employeeCells[c] || "").trim();
         if (name) employees.push(name);
         else break;
       }
 
-      // Read data rows using column A marker
       for (let dataRow = employeeHeaderRow + 1; dataRow < totalRow.rowIndex; dataRow++) {
         const rowCells = rows[dataRow] || [];
         const marker = (rowCells[0] || "").trim().toUpperCase();
-        const jobNumber = (rowCells[1] || "").trim();
+        // Job number is now in column C (index 2)
+        const jobNumber = (rowCells[2] || "").trim();
         if (!jobNumber) continue;
 
         const isOffHours = marker === "OH";
 
         for (let c = 0; c < employees.length; c++) {
           const empName = employees[c].toUpperCase();
-          const val = parseFloat(rowCells[c + 2] || "0") || 0;
+          // Employee data starts at column D (index 3)
+          const val = parseFloat(rowCells[c + 3] || "0") || 0;
           if (val > 0) {
             totalByEmployee.set(empName, (totalByEmployee.get(empName) || 0) + val);
             if (isOffHours) {
@@ -171,15 +177,16 @@ serve(async (req) => {
     console.log("Recap regular:", Object.fromEntries(regularByEmployee));
     console.log("Recap off-hours:", Object.fromEntries(offHoursByEmployee));
 
-    // Update recap (rows 1-20): A=Name, B=Total, C=Regular, D=Off-Hours
+    // Recap: C=Name (index 2), D=Total (index 3), E=Reg (index 4), F=Off (index 5), G=Total (index 6)
     const requests: any[] = [];
     let updatedCount = 0;
 
     for (let i = 0; i < Math.min(rows.length, 20); i++) {
-      const nameInA = (rows[i]?.[0] || "").trim();
-      if (!nameInA) continue;
+      // Employee name is now in column C (index 2)
+      const nameInC = (rows[i]?.[2] || "").trim();
+      if (!nameInC) continue;
 
-      const nameUpper = nameInA.toUpperCase();
+      const nameUpper = nameInC.toUpperCase();
       const total = totalByEmployee.get(nameUpper);
 
       if (total !== undefined) {
@@ -190,17 +197,18 @@ serve(async (req) => {
           updateCells: {
             rows: [{
               values: [
-                { userEnteredValue: { numberValue: total } },
-                { userEnteredValue: { numberValue: regular } },
-                { userEnteredValue: { numberValue: offHours } },
+                { userEnteredValue: { numberValue: total } },        // D: Total
+                { userEnteredValue: { numberValue: regular } },      // E: Regular
+                { userEnteredValue: { numberValue: offHours } },     // F: Off-Hours
+                { userEnteredValue: { numberValue: total } },        // G: Total (verification)
               ],
             }],
-            start: { sheetId: tab.sheetId, rowIndex: i, columnIndex: 1 },
+            start: { sheetId: tab.sheetId, rowIndex: i, columnIndex: 3 }, // Start at column D
             fields: "userEnteredValue",
           },
         });
         updatedCount++;
-        console.log(`Recap: ${nameInA} = total:${total}, reg:${regular}, oh:${offHours}`);
+        console.log(`Recap: ${nameInC} = total:${total}, reg:${regular}, oh:${offHours}`);
       }
     }
 
