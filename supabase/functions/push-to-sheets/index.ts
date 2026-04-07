@@ -324,9 +324,12 @@ async function writeJobRows(
 
   // New pivot rows: A=marker, B=customer, C=job#, D+=employee hours
   for (const pr of pivotRows) {
-    const textColor = pr.isOffHours
+    // Off Hours = red, Vacation/Sick = blue, Regular = black
+    const textColor = pr.entryType === "Off Hours"
       ? { red: 1, green: 0, blue: 0 }
-      : { red: 0, green: 0, blue: 0 };
+      : (pr.entryType === "Vacation" || pr.entryType === "Sick")
+        ? { red: 0, green: 0, blue: 1 }
+        : { red: 0, green: 0, blue: 0 };
     const fmt = {
       textFormat: {
         foregroundColorStyle: { rgbColor: textColor },
@@ -334,9 +337,9 @@ async function writeJobRows(
       },
     };
 
-    const marker = pr.isOffHours ? "OH" : "R";
+    const marker = typeToMarker(pr.entryType);
     const cells: any[] = [
-      { userEnteredValue: { stringValue: marker }, userEnteredFormat: fmt },      // A: R or OH
+      { userEnteredValue: { stringValue: marker }, userEnteredFormat: fmt },      // A: R/OH/V/S
       { userEnteredValue: { stringValue: pr.customer }, userEnteredFormat: fmt },  // B: Customer
       { userEnteredValue: { stringValue: pr.job_number }, userEnteredFormat: fmt },// C: Job #
     ];
