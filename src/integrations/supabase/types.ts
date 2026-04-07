@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      customer_mappings: {
+        Row: {
+          created_at: string
+          customer_name: string
+          id: string
+          keyword: string
+        }
+        Insert: {
+          created_at?: string
+          customer_name: string
+          id?: string
+          keyword: string
+        }
+        Update: {
+          created_at?: string
+          customer_name?: string
+          id?: string
+          keyword?: string
+        }
+        Relationships: []
+      }
       employees: {
         Row: {
           created_at: string
