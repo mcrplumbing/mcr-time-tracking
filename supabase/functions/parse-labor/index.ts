@@ -62,6 +62,16 @@ serve(async (req) => {
     const { data: employees } = await sb.from("employees").select("first_name, full_name");
     const roster = employees || [];
 
+    // Fetch customer mappings for AI prompt
+    const { data: customerMappings } = await sb.from("customer_mappings").select("keyword, customer_name");
+    const mappings = customerMappings || [];
+
+    let customerNotes = "";
+    if (mappings.length > 0) {
+      customerNotes = "\n\nKNOWN CUSTOMER MAPPINGS (use these to normalize customer names):\n" +
+        mappings.map(m => `"${m.keyword}" → "${m.customer_name}"`).join("\n");
+    }
+
     const systemPrompt = `You are a labor data parser for MCR Plumbing work orders. Extract labor information from work order text.
 
 For each work order, extract:
@@ -81,7 +91,8 @@ CRITICAL RULES:
 - Preserve the EXACT employee name as written in the source text. Do NOT correct spelling or guess names.
 - If a name is ambiguous or hard to read, output it exactly as it appears.
 - Extract hours as-is from the text — do not invent or calculate hours that are not explicitly stated.
-- The customer field should be the abbreviated client name (e.g., "USC", "CSMC", "LCS") when available.`;
+- The customer field should be the abbreviated client name (e.g., "USC", "CSMC", "LCS") when available.
+- Use the KNOWN CUSTOMER MAPPINGS below to normalize customer names when you recognize a match.${customerNotes}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -170,9 +181,17 @@ CRITICAL RULES:
     const flags: ValidationFlag[] = [];
     let needsReview = false;
 
+    // Apply customer mappings post-parse
+    const mappingLookup = new Map(mappings.map(m => [m.keyword.toUpperCase(), m.customer_name]));
+
     for (let woIdx = 0; woIdx < workOrdersArr.length; woIdx++) {
       const wo = workOrdersArr[woIdx];
 
+      // Normalize customer via mappings
+      if (wo.customer) {
+        const mapped = mappingLookup.get(wo.customer.toUpperCase());
+        if (mapped) wo.customer = mapped;
+      }
       if (wo.date && !/^\d{4}-\d{2}-\d{2}$/.test(wo.date)) {
         flags.push({
           level: "warning",
