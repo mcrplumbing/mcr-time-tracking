@@ -62,6 +62,16 @@ serve(async (req) => {
     const { data: employees } = await sb.from("employees").select("first_name, full_name");
     const roster = employees || [];
 
+    // Fetch customer mappings for AI prompt
+    const { data: customerMappings } = await sb.from("customer_mappings").select("keyword, customer_name");
+    const mappings = customerMappings || [];
+
+    let customerNotes = "";
+    if (mappings.length > 0) {
+      customerNotes = "\n\nKNOWN CUSTOMER MAPPINGS (use these to normalize customer names):\n" +
+        mappings.map(m => `"${m.keyword}" → "${m.customer_name}"`).join("\n");
+    }
+
     const systemPrompt = `You are a labor data parser for MCR Plumbing work orders. Extract labor information from work order text.
 
 For each work order, extract:
