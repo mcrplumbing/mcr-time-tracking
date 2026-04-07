@@ -321,18 +321,34 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
                         defaultValue={entry.customer}
                         autoFocus
                         className="h-8 w-24"
-                        onBlur={(e) => {
+                        onBlur={async (e) => {
+                          const newVal = e.target.value;
+                          const oldVal = workOrders[entry.woIndex].customer;
                           const updated = [...workOrders];
-                          updated[entry.woIndex].customer = e.target.value;
+                          updated[entry.woIndex].customer = newVal;
                           onUpdate(updated);
                           setEditingCell(null);
+                          if (oldVal && newVal && oldVal !== newVal) {
+                            await supabase.from("customer_mappings").upsert(
+                              { keyword: oldVal.toUpperCase(), customer_name: newVal },
+                              { onConflict: "keyword" }
+                            );
+                          }
                         }}
-                        onKeyDown={(e) => {
+                        onKeyDown={async (e) => {
                           if (e.key === "Enter") {
+                            const newVal = (e.target as HTMLInputElement).value;
+                            const oldVal = workOrders[entry.woIndex].customer;
                             const updated = [...workOrders];
-                            updated[entry.woIndex].customer = (e.target as HTMLInputElement).value;
+                            updated[entry.woIndex].customer = newVal;
                             onUpdate(updated);
                             setEditingCell(null);
+                            if (oldVal && newVal && oldVal !== newVal) {
+                              await supabase.from("customer_mappings").upsert(
+                                { keyword: oldVal.toUpperCase(), customer_name: newVal },
+                                { onConflict: "keyword" }
+                              );
+                            }
                           }
                         }}
                       />
