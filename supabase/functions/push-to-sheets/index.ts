@@ -204,8 +204,17 @@ async function findDaySection(
 interface PivotRow {
   job_number: string;
   customer: string;
-  isOffHours: boolean;
+  entryType: string; // "Regular", "Off Hours", "Vacation", "Sick"
   hoursByEmployee: Map<string, number>;
+}
+
+function typeToMarker(type: string): string {
+  switch (type) {
+    case "Off Hours": return "OH";
+    case "Vacation": return "V";
+    case "Sick": return "S";
+    default: return "R";
+  }
 }
 
 function pivotEntries(entries: LaborEntry[], employees: string[]): PivotRow[] {
@@ -217,7 +226,7 @@ function pivotEntries(entries: LaborEntry[], employees: string[]): PivotRow[] {
       groups.set(key, {
         job_number: entry.job_number,
         customer: entry.customer || "",
-        isOffHours: entry.type === "Off Hours",
+        entryType: entry.type,
         hoursByEmployee: new Map(),
       });
     }
@@ -232,7 +241,7 @@ function pivotEntries(entries: LaborEntry[], employees: string[]): PivotRow[] {
   const rows = Array.from(groups.values());
   rows.sort((a, b) => {
     if (a.job_number !== b.job_number) return a.job_number.localeCompare(b.job_number);
-    return a.isOffHours ? 1 : -1;
+    return a.entryType.localeCompare(b.entryType);
   });
   return rows;
 }
@@ -315,9 +324,12 @@ async function writeJobRows(
 
   // New pivot rows: A=marker, B=customer, C=job#, D+=employee hours
   for (const pr of pivotRows) {
-    const textColor = pr.isOffHours
+    // Off Hours = red, Vacation/Sick = blue, Regular = black
+    const textColor = pr.entryType === "Off Hours"
       ? { red: 1, green: 0, blue: 0 }
-      : { red: 0, green: 0, blue: 0 };
+      : (pr.entryType === "Vacation" || pr.entryType === "Sick")
+        ? { red: 0, green: 0, blue: 1 }
+        : { red: 0, green: 0, blue: 0 };
     const fmt = {
       textFormat: {
         foregroundColorStyle: { rgbColor: textColor },
@@ -325,9 +337,9 @@ async function writeJobRows(
       },
     };
 
-    const marker = pr.isOffHours ? "OH" : "R";
+    const marker = typeToMarker(pr.entryType);
     const cells: any[] = [
-      { userEnteredValue: { stringValue: marker }, userEnteredFormat: fmt },      // A: R or OH
+      { userEnteredValue: { stringValue: marker }, userEnteredFormat: fmt },      // A: R/OH/V/S
       { userEnteredValue: { stringValue: pr.customer }, userEnteredFormat: fmt },  // B: Customer
       { userEnteredValue: { stringValue: pr.job_number }, userEnteredFormat: fmt },// C: Job #
     ];
@@ -442,18 +454,19 @@ async function updateRecapSection(
       if (!jobNumber) continue;
 
       const isOffHours = marker === "OH";
+      const isRegular = marker === "R";
 
       for (let c = 0; c < employees.length; c++) {
         const empName = employees[c].toUpperCase();
-        // Employee data starts at column D (index 3)
         const val = parseFloat(rowCells[c + 3] || "0") || 0;
         if (val > 0) {
           totalByEmployee.set(empName, (totalByEmployee.get(empName) || 0) + val);
           if (isOffHours) {
             offHoursByEmployee.set(empName, (offHoursByEmployee.get(empName) || 0) + val);
-          } else {
+          } else if (isRegular) {
             regularByEmployee.set(empName, (regularByEmployee.get(empName) || 0) + val);
           }
+          // V and S count toward total but not regular or off-hours
         }
       }
     }

@@ -72,9 +72,9 @@ For each work order, extract:
 - entries: An array of labor entries, each with:
   - employee_name: The name as written in the source text (preserve original spelling)
   - hours: Number of hours (decimal)
-  - type: "Regular" or "Off Hours"
+  - type: "Regular", "Off Hours", "Vacation", or "Sick"
 
-Return a JSON array of parsed work orders. Be flexible with formatting - hours might appear as "8hr", "8 hrs", "8 hours", "8". Time type might be "Regular", "Reg", "OT", "Off Hours", "Off hours", "Overtime". Map OT/Overtime to "Off Hours".
+Return a JSON array of parsed work orders. Be flexible with formatting - hours might appear as "8hr", "8 hrs", "8 hours", "8". Time type might be "Regular", "Reg", "OT", "Off Hours", "Off hours", "Overtime", "Vacation", "PTO", "V", "Sick", "S". Map OT/Overtime to "Off Hours". Map PTO/V to "Vacation". Map S to "Sick".
 
 CRITICAL RULES:
 - Only extract from the "Labor:" section of each work order. Ignore materials and description sections.
@@ -120,7 +120,7 @@ CRITICAL RULES:
                             properties: {
                               employee_name: { type: "string" },
                               hours: { type: "number" },
-                              type: { type: "string", enum: ["Regular", "Off Hours"] },
+                              type: { type: "string", enum: ["Regular", "Off Hours", "Vacation", "Sick"] },
                             },
                             required: ["employee_name", "hours", "type"],
                             additionalProperties: false,

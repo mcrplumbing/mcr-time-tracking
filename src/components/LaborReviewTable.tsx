@@ -68,7 +68,7 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
     if (field === "hours") {
       entry.hours = Number(value) || 0;
     } else if (field === "type") {
-      entry.type = value as "Regular" | "Off Hours";
+      entry.type = value as "Regular" | "Off Hours" | "Vacation" | "Sick";
     } else {
       entry.employee_name = value as string;
     }
@@ -476,6 +476,8 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
                       <SelectContent>
                         <SelectItem value="Regular">Regular</SelectItem>
                         <SelectItem value="Off Hours">Off Hours</SelectItem>
+                        <SelectItem value="Vacation">Vacation</SelectItem>
+                        <SelectItem value="Sick">Sick</SelectItem>
                       </SelectContent>
                     </Select>
                   </TableCell>

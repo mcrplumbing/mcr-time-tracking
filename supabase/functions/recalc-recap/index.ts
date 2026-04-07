@@ -156,18 +156,19 @@ serve(async (req) => {
         if (!jobNumber) continue;
 
         const isOffHours = marker === "OH";
+        const isRegular = marker === "R";
 
         for (let c = 0; c < employees.length; c++) {
           const empName = employees[c].toUpperCase();
-          // Employee data starts at column D (index 3)
           const val = parseFloat(rowCells[c + 3] || "0") || 0;
           if (val > 0) {
             totalByEmployee.set(empName, (totalByEmployee.get(empName) || 0) + val);
             if (isOffHours) {
               offHoursByEmployee.set(empName, (offHoursByEmployee.get(empName) || 0) + val);
-            } else {
+            } else if (isRegular) {
               regularByEmployee.set(empName, (regularByEmployee.get(empName) || 0) + val);
             }
+            // V and S count toward total but not regular or off-hours
           }
         }
       }
