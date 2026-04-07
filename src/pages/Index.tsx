@@ -1,6 +1,7 @@
 import { useState } from "react";
 import WorkOrderInput from "@/components/WorkOrderInput";
 import LaborReviewTable from "@/components/LaborReviewTable";
+import CustomerMappings from "@/components/CustomerMappings";
 import { ParsedWorkOrder, ValidationFlag } from "@/types/labor";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -147,6 +148,9 @@ const Index = () => {
             </Button>
           </div>
         </div>
+
+        {/* Customer Mappings */}
+        <CustomerMappings />
       </main>
     </div>
   );
