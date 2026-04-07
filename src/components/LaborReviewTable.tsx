@@ -50,6 +50,7 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
       job_number: wo.job_number,
       date: wo.date,
       day_of_week: wo.day_of_week,
+      customer: wo.customer || "",
       ...entry,
     }))
   );
@@ -102,9 +103,10 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
   };
 
   const exportCSV = () => {
-    const headers = ["Job #", "Date", "Day", "Employee", "Hours", "Type", "Confidence"];
+    const headers = ["Job #", "Customer", "Date", "Day", "Employee", "Hours", "Type", "Confidence"];
     const rows = flatEntries.map((e) => [
       e.job_number,
+      e.customer,
       e.date,
       e.day_of_week,
       e.employee_name,
@@ -129,6 +131,7 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
     try {
       const entries = flatEntries.map((e) => ({
         job_number: e.job_number,
+        customer: e.customer,
         date: e.date,
         day_of_week: e.day_of_week,
         employee_name: e.employee_name,
@@ -264,6 +267,7 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
           <TableHeader>
             <TableRow className="bg-primary/5">
               <TableHead className="font-semibold">Job #</TableHead>
+              <TableHead className="font-semibold">Customer</TableHead>
               <TableHead className="font-semibold">Date</TableHead>
               <TableHead className="font-semibold">Day</TableHead>
               <TableHead className="font-semibold">Employee</TableHead>
