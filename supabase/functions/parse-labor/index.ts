@@ -91,7 +91,8 @@ CRITICAL RULES:
 - Preserve the EXACT employee name as written in the source text. Do NOT correct spelling or guess names.
 - If a name is ambiguous or hard to read, output it exactly as it appears.
 - Extract hours as-is from the text — do not invent or calculate hours that are not explicitly stated.
-- The customer field should be the abbreviated client name (e.g., "USC", "CSMC", "LCS") when available.`;
+- The customer field should be the abbreviated client name (e.g., "USC", "CSMC", "LCS") when available.
+- Use the KNOWN CUSTOMER MAPPINGS below to normalize customer names when you recognize a match.${customerNotes}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
