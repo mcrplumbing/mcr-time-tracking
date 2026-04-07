@@ -2,6 +2,7 @@ export interface LaborEntry {
   employee_name: string;
   hours: number;
   type: "Regular" | "Off Hours";
+  customer?: string;
   // Added for confidence-gated parsing
   original_name?: string;
   matched_name?: string;
