@@ -301,8 +301,21 @@ async function writeJobRows(
 
   const rowData: any[] = [];
 
-  // Preserved rows (re-written from raw cell data)
+  // Preserved rows (re-written from raw cell data with correct color formatting)
   for (const preserved of preservedRows) {
+    const marker = (preserved.rawCells[0] || "").trim().toUpperCase();
+    const textColor = marker === "OH"
+      ? { red: 1, green: 0, blue: 0 }
+      : (marker === "V" || marker === "S")
+        ? { red: 0, green: 0, blue: 1 }
+        : { red: 0, green: 0, blue: 0 };
+    const fmt = {
+      textFormat: {
+        foregroundColorStyle: { rgbColor: textColor },
+        fontSize: 12,
+      },
+    };
+
     const cells: any[] = [];
     // New layout: A=marker, B=customer, C=job#, D+=employees → need employees.length + 3 columns
     for (let c = 0; c < Math.max(preserved.rawCells.length, employees.length + 3); c++) {
@@ -313,9 +326,9 @@ async function writeJobRows(
         const num = parseFloat(val);
         // Employee data starts at column D (index 3)
         if (c >= 3 && !isNaN(num)) {
-          cells.push({ userEnteredValue: { numberValue: num } });
+          cells.push({ userEnteredValue: { numberValue: num }, userEnteredFormat: fmt });
         } else {
-          cells.push({ userEnteredValue: { stringValue: val } });
+          cells.push({ userEnteredValue: { stringValue: val }, userEnteredFormat: fmt });
         }
       }
     }
