@@ -150,6 +150,19 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
       toast.success(
         `${data.entries_added} entries sent to Google Sheets${data.is_new_sheet ? " (new sheet created)" : ""}`
       );
+
+      const conflicts = data?.conflicts || [];
+      if (conflicts.length > 0) {
+        const preview = conflicts.slice(0, 4).map((c: any) =>
+          `${c.day} • Job ${c.job_number} • ${c.employee} (${c.type}): sheet had ${c.existing_hours}h → overwrote with ${c.new_hours}h`
+        ).join("\n");
+        const more = conflicts.length > 4 ? `\n…and ${conflicts.length - 4} more` : "";
+        toast.warning(`⚠️ ${conflicts.length} conflict(s) — existing entries were overwritten`, {
+          description: preview + more,
+          duration: 15000,
+        });
+        console.warn("Sheet conflicts:", conflicts);
+      }
     } catch (err) {
       console.error("Push to sheets error:", err);
       toast.error("Failed to send to Google Sheets. Please try again.");
