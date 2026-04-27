@@ -270,22 +270,28 @@ async function writeJobRows(
   // Flags ANY overlap on the same employee — even if hours match — so the user is warned about overwrites.
   const conflicts: Conflict[] = [];
   const markerToType: Record<string, string> = { R: "Regular", OH: "Off Hours", V: "Vacation", S: "Sick" };
+  console.log(`[conflict-check] ${dayName}: ${existingDataRows.length} existing rows, ${pivotRows.length} incoming pivot rows`);
+  for (const ex of existingDataRows) {
+    const c = ex.cells[0] || [];
+    console.log(`[conflict-check] existing row → marker="${c[0]}" job="${c[2]}" cells.len=${c.length}`);
+  }
   for (const pr of pivotRows) {
     const incomingMarker = typeToMarker(pr.entryType);
+    console.log(`[conflict-check] incoming → marker="${incomingMarker}" job="${pr.job_number}" employees=${[...pr.hoursByEmployee.entries()].map(([k,v])=>`${k}:${v}`).join(",")}`);
     for (const existing of existingDataRows) {
       const exCells = existing.cells[0] || [];
-      const exMarker = (exCells[0] || "").trim().toUpperCase();
-      const exJob = (exCells[2] || "").trim();
+      const exMarker = (exCells[0] || "").toString().trim().toUpperCase();
+      const exJob = (exCells[2] || "").toString().trim();
       if (exJob.toUpperCase() !== pr.job_number.toUpperCase()) continue;
       if (exMarker !== incomingMarker) continue;
-      // Same job + same type → compare per-employee hours
+      // Same job + same type → row-level conflict (always flag), then add per-employee detail
+      let rowFlagged = false;
       for (let c = 0; c < employees.length; c++) {
         const emp = employees[c];
-        const exVal = parseFloat(exCells[c + 3] || "0") || 0;
+        const exVal = parseFloat((exCells[c + 3] ?? "").toString()) || 0;
         const newVal = pr.hoursByEmployee.get(emp) || 0;
-        // Flag if the sheet already has a value for this employee on this job/type
-        // (whether hours match, differ, or the new push leaves it blank/zero).
         if (exVal > 0) {
+          rowFlagged = true;
           conflicts.push({
             day: dayName,
             job_number: pr.job_number,
@@ -296,8 +302,20 @@ async function writeJobRows(
           });
         }
       }
+      // If row exists but no employee hours matched (e.g. all zeros), still warn once
+      if (!rowFlagged) {
+        conflicts.push({
+          day: dayName,
+          job_number: pr.job_number,
+          type: markerToType[incomingMarker] || incomingMarker,
+          employee: "(row exists)",
+          existing_hours: 0,
+          new_hours: 0,
+        });
+      }
     }
   }
+  console.log(`[conflict-check] ${dayName}: detected ${conflicts.length} conflict(s)`);
 
   if (dryRun) {
     // Detection-only mode: don't write anything, just report conflicts
