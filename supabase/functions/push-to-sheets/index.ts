@@ -440,6 +440,7 @@ async function writeJobRows(
   });
 
   await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
+  return conflicts;
 }
 
 // Recap section: C=Name, D=Total, E=Reg, F=Off, G=Total
