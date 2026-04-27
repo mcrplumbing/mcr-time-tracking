@@ -299,6 +299,11 @@ async function writeJobRows(
     }
   }
 
+  if (dryRun) {
+    // Detection-only mode: don't write anything, just report conflicts
+    return conflicts;
+  }
+
   const rowsToDelete = existingDataRows.length + (existingTotalRow !== null ? 1 : 0);
 
   const requests: any[] = [];
