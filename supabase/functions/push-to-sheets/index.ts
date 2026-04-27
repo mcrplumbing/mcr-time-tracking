@@ -246,14 +246,54 @@ function pivotEntries(entries: LaborEntry[], employees: string[]): PivotRow[] {
   return rows;
 }
 
+interface Conflict {
+  day: string;
+  job_number: string;
+  type: string;
+  employee: string;
+  existing_hours: number;
+  new_hours: number;
+}
+
 async function writeJobRows(
   accessToken: string,
   sheetId: number,
   tabTitle: string,
   section: DaySection,
   pivotRows: PivotRow[],
-) {
+  dayName: string,
+): Promise<Conflict[]> {
   const { employeeRow, employees, dataStartRow, existingTotalRow, existingDataRows } = section;
+
+  // Detect conflicts: existing rows that match incoming (job_number + marker) but have different hours
+  const conflicts: Conflict[] = [];
+  const markerToType: Record<string, string> = { R: "Regular", OH: "Off Hours", V: "Vacation", S: "Sick" };
+  for (const pr of pivotRows) {
+    const incomingMarker = typeToMarker(pr.entryType);
+    for (const existing of existingDataRows) {
+      const exCells = existing.cells[0] || [];
+      const exMarker = (exCells[0] || "").trim().toUpperCase();
+      const exJob = (exCells[2] || "").trim();
+      if (exJob.toUpperCase() !== pr.job_number.toUpperCase()) continue;
+      if (exMarker !== incomingMarker) continue;
+      // Same job + same type → compare per-employee hours
+      for (let c = 0; c < employees.length; c++) {
+        const emp = employees[c];
+        const exVal = parseFloat(exCells[c + 3] || "0") || 0;
+        const newVal = pr.hoursByEmployee.get(emp) || 0;
+        if (exVal > 0 && Math.abs(exVal - newVal) > 0.001) {
+          conflicts.push({
+            day: dayName,
+            job_number: pr.job_number,
+            type: markerToType[incomingMarker] || incomingMarker,
+            employee: emp,
+            existing_hours: exVal,
+            new_hours: newVal,
+          });
+        }
+      }
+    }
+  }
 
   const rowsToDelete = existingDataRows.length + (existingTotalRow !== null ? 1 : 0);
 
