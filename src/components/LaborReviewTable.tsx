@@ -578,6 +578,47 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
           </TableBody>
         </Table>
       </div>
+
+      <AlertDialog
+        open={pendingConflicts !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingConflicts(null);
+        }}
+      >
+        <AlertDialogContent className="max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-yellow-600" />
+              Duplicate / overwrite detected
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  {pendingConflicts?.length ?? 0} entry(ies) in the spreadsheet will be{" "}
+                  <strong>overwritten</strong> by this push. Review below — proceed only if this
+                  is an intentional edit.
+                </p>
+                <div className="max-h-64 overflow-y-auto rounded border border-border bg-muted/30 p-2 text-xs font-mono space-y-1">
+                  {pendingConflicts?.map((c, i) => (
+                    <div key={i}>
+                      <span className="text-muted-foreground">{c.day}</span> • Job{" "}
+                      <strong>{c.job_number}</strong> • {c.employee} ({c.type}):{" "}
+                      <span className="text-red-600">{c.existing_hours}h</span> →{" "}
+                      <span className="text-green-700">{c.new_hours}h</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel — don't overwrite</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmOverwrite}>
+              Yes, overwrite
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
