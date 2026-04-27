@@ -620,6 +620,7 @@ serve(async (req) => {
     }
 
     let totalAdded = 0;
+    const allConflicts: any[] = [];
     for (const [dayName, dayEntries] of entriesByDay) {
       console.log(`Processing ${dayName}: ${dayEntries.length} entries`);
 
@@ -628,7 +629,11 @@ serve(async (req) => {
 
       const pivotRows = pivotEntries(dayEntries, section.employees);
 
-      await writeJobRows(accessToken, tab.sheetId, tab.title, section, pivotRows);
+      const conflicts = await writeJobRows(accessToken, tab.sheetId, tab.title, section, pivotRows, dayName);
+      if (conflicts.length > 0) {
+        console.log(`⚠️  ${conflicts.length} conflict(s) in ${dayName}`);
+        allConflicts.push(...conflicts);
+      }
       totalAdded += pivotRows.length;
       console.log(`Wrote ${pivotRows.length} rows into ${dayName}`);
     }
@@ -641,6 +646,7 @@ serve(async (req) => {
         spreadsheet_url: `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}`,
         entries_added: totalAdded,
         tab: tab.title,
+        conflicts: allConflicts,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
