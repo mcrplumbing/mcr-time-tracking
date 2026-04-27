@@ -270,12 +270,18 @@ async function writeJobRows(
   // Flags ANY overlap on the same employee — even if hours match — so the user is warned about overwrites.
   const conflicts: Conflict[] = [];
   const markerToType: Record<string, string> = { R: "Regular", OH: "Off Hours", V: "Vacation", S: "Sick" };
+  console.log(`[conflict-check] ${dayName}: ${existingDataRows.length} existing rows, ${pivotRows.length} incoming pivot rows`);
+  for (const ex of existingDataRows) {
+    const c = ex.cells[0] || [];
+    console.log(`[conflict-check] existing row → marker="${c[0]}" job="${c[2]}" cells.len=${c.length}`);
+  }
   for (const pr of pivotRows) {
     const incomingMarker = typeToMarker(pr.entryType);
+    console.log(`[conflict-check] incoming → marker="${incomingMarker}" job="${pr.job_number}" employees=${[...pr.hoursByEmployee.entries()].map(([k,v])=>`${k}:${v}`).join(",")}`);
     for (const existing of existingDataRows) {
       const exCells = existing.cells[0] || [];
-      const exMarker = (exCells[0] || "").trim().toUpperCase();
-      const exJob = (exCells[2] || "").trim();
+      const exMarker = (exCells[0] || "").toString().trim().toUpperCase();
+      const exJob = (exCells[2] || "").toString().trim();
       if (exJob.toUpperCase() !== pr.job_number.toUpperCase()) continue;
       if (exMarker !== incomingMarker) continue;
       // Same job + same type → compare per-employee hours
