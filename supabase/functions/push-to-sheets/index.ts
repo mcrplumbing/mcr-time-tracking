@@ -262,10 +262,12 @@ async function writeJobRows(
   section: DaySection,
   pivotRows: PivotRow[],
   dayName: string,
+  dryRun = false,
 ): Promise<Conflict[]> {
   const { employeeRow, employees, dataStartRow, existingTotalRow, existingDataRows } = section;
 
-  // Detect conflicts: existing rows that match incoming (job_number + marker) but have different hours
+  // Detect conflicts: existing rows that match incoming (job_number + marker)
+  // Flags ANY overlap on the same employee — even if hours match — so the user is warned about overwrites.
   const conflicts: Conflict[] = [];
   const markerToType: Record<string, string> = { R: "Regular", OH: "Off Hours", V: "Vacation", S: "Sick" };
   for (const pr of pivotRows) {
@@ -281,7 +283,9 @@ async function writeJobRows(
         const emp = employees[c];
         const exVal = parseFloat(exCells[c + 3] || "0") || 0;
         const newVal = pr.hoursByEmployee.get(emp) || 0;
-        if (exVal > 0 && Math.abs(exVal - newVal) > 0.001) {
+        // Flag if the sheet already has a value for this employee on this job/type
+        // (whether hours match, differ, or the new push leaves it blank/zero).
+        if (exVal > 0) {
           conflicts.push({
             day: dayName,
             job_number: pr.job_number,
@@ -293,6 +297,11 @@ async function writeJobRows(
         }
       }
     }
+  }
+
+  if (dryRun) {
+    // Detection-only mode: don't write anything, just report conflicts
+    return conflicts;
   }
 
   const rowsToDelete = existingDataRows.length + (existingTotalRow !== null ? 1 : 0);
@@ -599,7 +608,7 @@ serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const { entries } = (await req.json()) as { entries: LaborEntry[] };
+    const { entries, dryRun = false } = (await req.json()) as { entries: LaborEntry[]; dryRun?: boolean };
     if (!entries || entries.length === 0) throw new Error("No entries provided");
 
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
@@ -622,27 +631,32 @@ serve(async (req) => {
     let totalAdded = 0;
     const allConflicts: any[] = [];
     for (const [dayName, dayEntries] of entriesByDay) {
-      console.log(`Processing ${dayName}: ${dayEntries.length} entries`);
+      console.log(`Processing ${dayName}: ${dayEntries.length} entries${dryRun ? " (DRY RUN)" : ""}`);
 
       const section = await findDaySection(accessToken, tab.title, dayName);
       console.log(`${dayName}: employeeRow=${section.employeeRow}, dataStart=${section.dataStartRow}, existing=${section.existingDataRows.length} rows`);
 
       const pivotRows = pivotEntries(dayEntries, section.employees);
 
-      const conflicts = await writeJobRows(accessToken, tab.sheetId, tab.title, section, pivotRows, dayName);
+      const conflicts = await writeJobRows(accessToken, tab.sheetId, tab.title, section, pivotRows, dayName, dryRun);
       if (conflicts.length > 0) {
         console.log(`⚠️  ${conflicts.length} conflict(s) in ${dayName}`);
         allConflicts.push(...conflicts);
       }
-      totalAdded += pivotRows.length;
-      console.log(`Wrote ${pivotRows.length} rows into ${dayName}`);
+      if (!dryRun) {
+        totalAdded += pivotRows.length;
+        console.log(`Wrote ${pivotRows.length} rows into ${dayName}`);
+      }
     }
 
-    await updateRecapSection(accessToken, tab.sheetId, tab.title);
+    if (!dryRun) {
+      await updateRecapSection(accessToken, tab.sheetId, tab.title);
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
+        dryRun,
         spreadsheet_url: `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}`,
         entries_added: totalAdded,
         tab: tab.title,
