@@ -631,27 +631,32 @@ serve(async (req) => {
     let totalAdded = 0;
     const allConflicts: any[] = [];
     for (const [dayName, dayEntries] of entriesByDay) {
-      console.log(`Processing ${dayName}: ${dayEntries.length} entries`);
+      console.log(`Processing ${dayName}: ${dayEntries.length} entries${dryRun ? " (DRY RUN)" : ""}`);
 
       const section = await findDaySection(accessToken, tab.title, dayName);
       console.log(`${dayName}: employeeRow=${section.employeeRow}, dataStart=${section.dataStartRow}, existing=${section.existingDataRows.length} rows`);
 
       const pivotRows = pivotEntries(dayEntries, section.employees);
 
-      const conflicts = await writeJobRows(accessToken, tab.sheetId, tab.title, section, pivotRows, dayName);
+      const conflicts = await writeJobRows(accessToken, tab.sheetId, tab.title, section, pivotRows, dayName, dryRun);
       if (conflicts.length > 0) {
         console.log(`⚠️  ${conflicts.length} conflict(s) in ${dayName}`);
         allConflicts.push(...conflicts);
       }
-      totalAdded += pivotRows.length;
-      console.log(`Wrote ${pivotRows.length} rows into ${dayName}`);
+      if (!dryRun) {
+        totalAdded += pivotRows.length;
+        console.log(`Wrote ${pivotRows.length} rows into ${dayName}`);
+      }
     }
 
-    await updateRecapSection(accessToken, tab.sheetId, tab.title);
+    if (!dryRun) {
+      await updateRecapSection(accessToken, tab.sheetId, tab.title);
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
+        dryRun,
         spreadsheet_url: `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}`,
         entries_added: totalAdded,
         tab: tab.title,
