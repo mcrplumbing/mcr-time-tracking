@@ -430,6 +430,8 @@ async function updateRecapSection(
   const totalByEmployee = new Map<string, number>();
   const regularByEmployee = new Map<string, number>();
   const offHoursByEmployee = new Map<string, number>();
+  const vacationByEmployee = new Map<string, number>();
+  const sickByEmployee = new Map<string, number>();
 
   for (const totalRow of totalRows) {
     let employeeHeaderRow = -1;
@@ -438,7 +440,6 @@ async function updateRecapSection(
       if (dayNames.some(d => cellA.includes(d))) {
         for (const candidate of [j, j + 1]) {
           const candidateCells = rows[candidate] || [];
-          // Employee names start at column D (index 3)
           if ((candidateCells[3] || "").trim()) {
             employeeHeaderRow = candidate;
             break;
@@ -452,7 +453,6 @@ async function updateRecapSection(
 
     const employeeCells = rows[employeeHeaderRow] || [];
     const employees: string[] = [];
-    // Employee names start at column D (index 3)
     for (let c = 3; c < employeeCells.length; c++) {
       const name = (employeeCells[c] || "").trim();
       if (name) employees.push(name);
@@ -462,38 +462,52 @@ async function updateRecapSection(
     for (let dataRow = employeeHeaderRow + 1; dataRow < totalRow.rowIndex; dataRow++) {
       const rowCells = rows[dataRow] || [];
       const marker = (rowCells[0] || "").trim().toUpperCase();
-      // Job number is now in column C (index 2)
       const jobNumber = (rowCells[2] || "").trim();
       if (!jobNumber) continue;
 
       const isOffHours = marker === "OH";
       const isRegular = marker === "R";
+      const isVacation = marker === "V";
+      const isSick = marker === "S";
 
       for (let c = 0; c < employees.length; c++) {
         const empName = employees[c].toUpperCase();
         const val = parseFloat(rowCells[c + 3] || "0") || 0;
         if (val > 0) {
           totalByEmployee.set(empName, (totalByEmployee.get(empName) || 0) + val);
-          if (isOffHours) {
-            offHoursByEmployee.set(empName, (offHoursByEmployee.get(empName) || 0) + val);
-          } else if (isRegular) {
-            regularByEmployee.set(empName, (regularByEmployee.get(empName) || 0) + val);
-          }
-          // V and S count toward total but not regular or off-hours
+          if (isOffHours) offHoursByEmployee.set(empName, (offHoursByEmployee.get(empName) || 0) + val);
+          else if (isRegular) regularByEmployee.set(empName, (regularByEmployee.get(empName) || 0) + val);
+          else if (isVacation) vacationByEmployee.set(empName, (vacationByEmployee.get(empName) || 0) + val);
+          else if (isSick) sickByEmployee.set(empName, (sickByEmployee.get(empName) || 0) + val);
         }
       }
     }
   }
 
   console.log("Recap totals:", Object.fromEntries(totalByEmployee));
-  console.log("Recap regular:", Object.fromEntries(regularByEmployee));
-  console.log("Recap off-hours:", Object.fromEntries(offHoursByEmployee));
 
-  // Recap layout: C=Name (index 2), D=Total (index 3), E=Reg (index 4), F=Off (index 5), G=Total (index 6)
+  // Recap layout: C=Name, D=Total, E=Regular, F=Off-Hours, G=Vacation, H=Sick, I=Total (verification)
   const requests: any[] = [];
 
+  // Write header labels in row 1 (rowIndex 0) for cols D-I if not already correct
+  requests.push({
+    updateCells: {
+      rows: [{
+        values: [
+          { userEnteredValue: { stringValue: "Total" }, userEnteredFormat: { textFormat: { bold: true } } },
+          { userEnteredValue: { stringValue: "Regular" }, userEnteredFormat: { textFormat: { bold: true } } },
+          { userEnteredValue: { stringValue: "Off-Hours" }, userEnteredFormat: { textFormat: { bold: true } } },
+          { userEnteredValue: { stringValue: "Vacation" }, userEnteredFormat: { textFormat: { bold: true } } },
+          { userEnteredValue: { stringValue: "Sick" }, userEnteredFormat: { textFormat: { bold: true } } },
+          { userEnteredValue: { stringValue: "Total" }, userEnteredFormat: { textFormat: { bold: true } } },
+        ],
+      }],
+      start: { sheetId, rowIndex: 0, columnIndex: 3 },
+      fields: "userEnteredValue,userEnteredFormat.textFormat",
+    },
+  });
+
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
-    // Employee name is now in column C (index 2)
     const nameInC = (rows[i]?.[2] || "").trim();
     if (!nameInC) continue;
 
@@ -503,28 +517,32 @@ async function updateRecapSection(
     if (total !== undefined) {
       const regular = regularByEmployee.get(nameUpper) || 0;
       const offHours = offHoursByEmployee.get(nameUpper) || 0;
+      const vacation = vacationByEmployee.get(nameUpper) || 0;
+      const sick = sickByEmployee.get(nameUpper) || 0;
 
       requests.push({
         updateCells: {
           rows: [{
             values: [
-              { userEnteredValue: { numberValue: total } },        // D: Total
-              { userEnteredValue: { numberValue: regular } },      // E: Regular
-              { userEnteredValue: { numberValue: offHours } },     // F: Off-Hours
-              { userEnteredValue: { numberValue: total } },        // G: Total (verification)
+              { userEnteredValue: { numberValue: total } },     // D: Total
+              { userEnteredValue: { numberValue: regular } },   // E: Regular
+              { userEnteredValue: { numberValue: offHours } },  // F: Off-Hours
+              { userEnteredValue: { numberValue: vacation } },  // G: Vacation
+              { userEnteredValue: { numberValue: sick } },      // H: Sick
+              { userEnteredValue: { numberValue: total } },     // I: Total (verification)
             ],
           }],
-          start: { sheetId, rowIndex: i, columnIndex: 3 }, // Start at column D (index 3)
+          start: { sheetId, rowIndex: i, columnIndex: 3 },
           fields: "userEnteredValue",
         },
       });
-      console.log(`Recap: ${nameInC} = total:${total}, reg:${regular}, oh:${offHours}`);
+      console.log(`Recap: ${nameInC} = total:${total}, reg:${regular}, oh:${offHours}, vac:${vacation}, sick:${sick}`);
     }
   }
 
   if (requests.length > 0) {
     await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
-    console.log(`Updated recap for ${requests.length} employees`);
+    console.log(`Updated recap for ${requests.length - 1} employees`);
   }
 }
 
