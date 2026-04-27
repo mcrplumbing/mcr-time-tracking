@@ -608,7 +608,7 @@ serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const { entries } = (await req.json()) as { entries: LaborEntry[] };
+    const { entries, dryRun = false } = (await req.json()) as { entries: LaborEntry[]; dryRun?: boolean };
     if (!entries || entries.length === 0) throw new Error("No entries provided");
 
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
