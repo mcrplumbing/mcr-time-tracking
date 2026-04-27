@@ -266,10 +266,11 @@ async function writeJobRows(
 ): Promise<Conflict[]> {
   const { employeeRow, employees, dataStartRow, existingTotalRow, existingDataRows } = section;
 
-  // Detect conflicts: existing rows that match incoming (job_number + marker)
-  // Flags ANY overlap on the same employee — even if hours match — so the user is warned about overwrites.
+  // Detect conflicts: any existing row with the same job number will be replaced by this push.
+  // This intentionally ignores marker/type because the write step removes all rows for incoming job numbers.
   const conflicts: Conflict[] = [];
   const markerToType: Record<string, string> = { R: "Regular", OH: "Off Hours", V: "Vacation", S: "Sick" };
+  const normalizeJobNumber = (value: unknown) => (value ?? "").toString().trim().toUpperCase();
   console.log(`[conflict-check] ${dayName}: ${existingDataRows.length} existing rows, ${pivotRows.length} incoming pivot rows`);
   for (const ex of existingDataRows) {
     const c = ex.cells[0] || [];
@@ -282,20 +283,22 @@ async function writeJobRows(
       const exCells = existing.cells[0] || [];
       const exMarker = (exCells[0] || "").toString().trim().toUpperCase();
       const exJob = (exCells[2] || "").toString().trim();
-      if (exJob.toUpperCase() !== pr.job_number.toUpperCase()) continue;
-      if (exMarker !== incomingMarker) continue;
-      // Same job + same type → row-level conflict (always flag), then add per-employee detail
+      if (normalizeJobNumber(exJob) !== normalizeJobNumber(pr.job_number)) continue;
+      // Same job number → row-level conflict (always flag), then add per-employee detail.
+      // Even a Regular row conflicts with an incoming Off Hours row because the rewrite preserves by job number only.
       let rowFlagged = false;
       for (let c = 0; c < employees.length; c++) {
         const emp = employees[c];
         const exVal = parseFloat((exCells[c + 3] ?? "").toString()) || 0;
         const newVal = pr.hoursByEmployee.get(emp) || 0;
-        if (exVal > 0) {
+        if (exVal > 0 || newVal > 0) {
           rowFlagged = true;
           conflicts.push({
             day: dayName,
             job_number: pr.job_number,
-            type: markerToType[incomingMarker] || incomingMarker,
+            type: exMarker === incomingMarker
+              ? markerToType[incomingMarker] || incomingMarker
+              : `${markerToType[exMarker] || exMarker || "Existing"} → ${markerToType[incomingMarker] || incomingMarker}`,
             employee: emp,
             existing_hours: exVal,
             new_hours: newVal,
