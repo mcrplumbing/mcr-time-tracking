@@ -262,6 +262,7 @@ async function writeJobRows(
   section: DaySection,
   pivotRows: PivotRow[],
   dayName: string,
+  dryRun = false,
 ): Promise<Conflict[]> {
   const { employeeRow, employees, dataStartRow, existingTotalRow, existingDataRows } = section;
 
