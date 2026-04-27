@@ -265,7 +265,8 @@ async function writeJobRows(
 ): Promise<Conflict[]> {
   const { employeeRow, employees, dataStartRow, existingTotalRow, existingDataRows } = section;
 
-  // Detect conflicts: existing rows that match incoming (job_number + marker) but have different hours
+  // Detect conflicts: existing rows that match incoming (job_number + marker)
+  // Flags ANY overlap on the same employee — even if hours match — so the user is warned about overwrites.
   const conflicts: Conflict[] = [];
   const markerToType: Record<string, string> = { R: "Regular", OH: "Off Hours", V: "Vacation", S: "Sick" };
   for (const pr of pivotRows) {
@@ -281,7 +282,9 @@ async function writeJobRows(
         const emp = employees[c];
         const exVal = parseFloat(exCells[c + 3] || "0") || 0;
         const newVal = pr.hoursByEmployee.get(emp) || 0;
-        if (exVal > 0 && Math.abs(exVal - newVal) > 0.001) {
+        // Flag if the sheet already has a value for this employee on this job/type
+        // (whether hours match, differ, or the new push leaves it blank/zero).
+        if (exVal > 0) {
           conflicts.push({
             day: dayName,
             job_number: pr.job_number,
