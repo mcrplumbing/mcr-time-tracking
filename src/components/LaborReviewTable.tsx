@@ -127,46 +127,80 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
     toast.success("CSV exported successfully");
   };
 
+  const buildEntriesPayload = () =>
+    flatEntries.map((e) => ({
+      job_number: e.job_number,
+      customer: e.customer,
+      date: e.date,
+      day_of_week: e.day_of_week,
+      employee_name: e.employee_name,
+      hours: e.hours,
+      type: e.type,
+    }));
+
+  const performPush = async (entries: ReturnType<typeof buildEntriesPayload>) => {
+    const { data, error } = await supabase.functions.invoke("push-to-sheets", {
+      body: { entries },
+    });
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+
+    setSheetUrl(data.spreadsheet_url);
+    toast.success(
+      `${data.entries_added} entries sent to Google Sheets${data.is_new_sheet ? " (new sheet created)" : ""}`
+    );
+
+    const conflicts = data?.conflicts || [];
+    if (conflicts.length > 0) {
+      const preview = conflicts.slice(0, 4).map((c: any) =>
+        `${c.day} • Job ${c.job_number} • ${c.employee} (${c.type}): sheet had ${c.existing_hours}h → overwrote with ${c.new_hours}h`
+      ).join("\n");
+      const more = conflicts.length > 4 ? `\n…and ${conflicts.length - 4} more` : "";
+      toast.warning(`⚠️ ${conflicts.length} entry(ies) overwritten`, {
+        description: preview + more,
+        duration: 15000,
+      });
+    }
+  };
+
   const sendToSheets = async () => {
     setIsSending(true);
     try {
-      const entries = flatEntries.map((e) => ({
-        job_number: e.job_number,
-        customer: e.customer,
-        date: e.date,
-        day_of_week: e.day_of_week,
-        employee_name: e.employee_name,
-        hours: e.hours,
-        type: e.type,
-      }));
+      const entries = buildEntriesPayload();
 
-      const { data, error } = await supabase.functions.invoke("push-to-sheets", {
-        body: { entries },
+      // Step 1: dry run to detect conflicts before any write
+      const { data: dry, error: dryErr } = await supabase.functions.invoke("push-to-sheets", {
+        body: { entries, dryRun: true },
       });
+      if (dryErr) throw dryErr;
+      if (dry?.error) throw new Error(dry.error);
 
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-
-      setSheetUrl(data.spreadsheet_url);
-      toast.success(
-        `${data.entries_added} entries sent to Google Sheets${data.is_new_sheet ? " (new sheet created)" : ""}`
-      );
-
-      const conflicts = data?.conflicts || [];
+      const conflicts = dry?.conflicts || [];
       if (conflicts.length > 0) {
-        const preview = conflicts.slice(0, 4).map((c: any) =>
-          `${c.day} • Job ${c.job_number} • ${c.employee} (${c.type}): sheet had ${c.existing_hours}h → overwrote with ${c.new_hours}h`
-        ).join("\n");
-        const more = conflicts.length > 4 ? `\n…and ${conflicts.length - 4} more` : "";
-        toast.warning(`⚠️ ${conflicts.length} conflict(s) — existing entries were overwritten`, {
-          description: preview + more,
-          duration: 15000,
-        });
-        console.warn("Sheet conflicts:", conflicts);
+        // Pause and ask the user to confirm overwrite
+        setPendingConflicts(conflicts);
+        setIsSending(false);
+        return;
       }
+
+      // No conflicts → proceed
+      await performPush(entries);
     } catch (err) {
       console.error("Push to sheets error:", err);
-      toast.error("Failed to send to Google Sheets. Please try again.");
+      toast.error(err instanceof Error ? err.message : "Failed to send to Google Sheets.");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const confirmOverwrite = async () => {
+    setPendingConflicts(null);
+    setIsSending(true);
+    try {
+      await performPush(buildEntriesPayload());
+    } catch (err) {
+      console.error("Push to sheets error:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to send to Google Sheets.");
     } finally {
       setIsSending(false);
     }
