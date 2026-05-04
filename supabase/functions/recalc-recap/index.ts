@@ -126,11 +126,11 @@ serve(async (req) => {
     for (const totalRow of totalRows) {
       let employeeHeaderRow = -1;
       for (let j = totalRow.rowIndex - 1; j >= 0; j--) {
-        const cellA = (rows[j]?.[0] || "").toString().toUpperCase().trim();
+        const cellA = String(rows[j]?.[0] ?? "").toUpperCase().trim();
         if (dayNames.some(d => cellA.includes(d))) {
           for (const candidate of [j, j + 1]) {
             const candidateCells = rows[candidate] || [];
-            if ((candidateCells[3] || "").toString().trim()) {
+            if (String(candidateCells[3] ?? "").trim()) {
               employeeHeaderRow = candidate;
               break;
             }
