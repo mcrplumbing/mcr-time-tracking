@@ -117,6 +117,88 @@ serve(async (req) => {
 
     console.log(`Found ${totalRows.length} TOTAL rows`);
 
+    // ---- Sort each day's data rows by job number (column C) ----
+    // For each TOTAL row, find its day's employee header row, then sort
+    // the rows between (employeeHeaderRow + 1) and (totalRow.rowIndex - 1)
+    // by column C (job number) using natural numeric ordering.
+    const sortValueRequests: { range: string; values: any[][] }[] = [];
+
+    for (const totalRow of totalRows) {
+      let employeeHeaderRow = -1;
+      for (let j = totalRow.rowIndex - 1; j >= 0; j--) {
+        const cellA = (rows[j]?.[0] || "").toString().toUpperCase().trim();
+        if (dayNames.some(d => cellA.includes(d))) {
+          for (const candidate of [j, j + 1]) {
+            const candidateCells = rows[candidate] || [];
+            if ((candidateCells[3] || "").toString().trim()) {
+              employeeHeaderRow = candidate;
+              break;
+            }
+          }
+          break;
+        }
+      }
+      if (employeeHeaderRow === -1) continue;
+
+      const firstDataRow = employeeHeaderRow + 1;
+      const lastDataRow = totalRow.rowIndex - 1;
+      if (lastDataRow < firstDataRow) continue;
+
+      // Determine width based on employee header row
+      const employeeCells = rows[employeeHeaderRow] || [];
+      let width = 3; // A, B, C minimum
+      for (let c = 3; c < employeeCells.length; c++) {
+        if ((employeeCells[c] || "").toString().trim()) width = c + 1;
+        else break;
+      }
+
+      // Snapshot data rows, padded to `width`
+      const dataBlock: string[][] = [];
+      for (let r = firstDataRow; r <= lastDataRow; r++) {
+        const src = rows[r] || [];
+        const padded: string[] = [];
+        for (let c = 0; c < width; c++) padded.push(src[c] !== undefined ? src[c] : "");
+        dataBlock.push(padded);
+      }
+
+      // Skip rows with no job number — sort only those that have one,
+      // keep blank-job rows at the bottom in original order.
+      const withJob = dataBlock.filter(r => (r[2] || "").toString().trim() !== "");
+      const withoutJob = dataBlock.filter(r => (r[2] || "").toString().trim() === "");
+
+      withJob.sort((a, b) =>
+        (a[2] || "").toString().localeCompare((b[2] || "").toString(), undefined, { numeric: true, sensitivity: "base" })
+      );
+
+      const sorted = [...withJob, ...withoutJob];
+
+      // Only queue a write if order actually changed
+      const changed = sorted.some((row, i) => row.join("|") !== dataBlock[i].join("|"));
+      if (!changed) continue;
+
+      // Mutate in-memory rows so downstream recap aggregation sees sorted data
+      for (let i = 0; i < sorted.length; i++) {
+        rows[firstDataRow + i] = sorted[i];
+      }
+
+      // Build A1 range for this block
+      const startA1 = `A${firstDataRow + 1}`;
+      const endColLetter = String.fromCharCode("A".charCodeAt(0) + width - 1);
+      const endA1 = `${endColLetter}${lastDataRow + 1}`;
+      sortValueRequests.push({
+        range: `${tab.title}!${startA1}:${endA1}`,
+        values: sorted,
+      });
+    }
+
+    if (sortValueRequests.length > 0) {
+      console.log(`Sorting ${sortValueRequests.length} day section(s) by job number`);
+      await sheetsApi(accessToken, `/values:batchUpdate`, "POST", {
+        valueInputOption: "USER_ENTERED",
+        data: sortValueRequests,
+      });
+    }
+
     const totalByEmployee = new Map<string, number>();
     const regularByEmployee = new Map<string, number>();
     const offHoursByEmployee = new Map<string, number>();
