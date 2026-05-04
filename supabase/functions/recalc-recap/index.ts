@@ -109,7 +109,7 @@ serve(async (req) => {
     // Find all TOTAL rows — TOTAL is now in column C (index 2)
     const totalRows: { rowIndex: number; values: string[] }[] = [];
     for (let i = 0; i < rows.length; i++) {
-      const cellC = (rows[i]?.[2] || "").toUpperCase().trim();
+      const cellC = String(rows[i]?.[2] ?? "").toUpperCase().trim();
       if (cellC === "TOTAL" && i > 20) {
         totalRows.push({ rowIndex: i, values: rows[i] || [] });
       }
@@ -126,11 +126,11 @@ serve(async (req) => {
     for (const totalRow of totalRows) {
       let employeeHeaderRow = -1;
       for (let j = totalRow.rowIndex - 1; j >= 0; j--) {
-        const cellA = (rows[j]?.[0] || "").toString().toUpperCase().trim();
+        const cellA = String(rows[j]?.[0] ?? "").toUpperCase().trim();
         if (dayNames.some(d => cellA.includes(d))) {
           for (const candidate of [j, j + 1]) {
             const candidateCells = rows[candidate] || [];
-            if ((candidateCells[3] || "").toString().trim()) {
+            if (String(candidateCells[3] ?? "").trim()) {
               employeeHeaderRow = candidate;
               break;
             }
@@ -208,11 +208,11 @@ serve(async (req) => {
     for (const totalRow of totalRows) {
       let employeeHeaderRow = -1;
       for (let j = totalRow.rowIndex - 1; j >= 0; j--) {
-        const cellA = (rows[j]?.[0] || "").toUpperCase().trim();
+        const cellA = String(rows[j]?.[0] ?? "").toUpperCase().trim();
         if (dayNames.some(d => cellA.includes(d))) {
           for (const candidate of [j, j + 1]) {
             const candidateCells = rows[candidate] || [];
-            if ((candidateCells[3] || "").trim()) {
+            if (String(candidateCells[3] ?? "").trim()) {
               employeeHeaderRow = candidate;
               break;
             }
@@ -226,15 +226,15 @@ serve(async (req) => {
       const employeeCells = rows[employeeHeaderRow] || [];
       const employees: string[] = [];
       for (let c = 3; c < employeeCells.length; c++) {
-        const name = (employeeCells[c] || "").trim();
+        const name = String(employeeCells[c] ?? "").trim();
         if (name) employees.push(name);
         else break;
       }
 
       for (let dataRow = employeeHeaderRow + 1; dataRow < totalRow.rowIndex; dataRow++) {
         const rowCells = rows[dataRow] || [];
-        const marker = (rowCells[0] || "").trim().toUpperCase();
-        const jobNumber = (rowCells[2] || "").trim();
+        const marker = String(rowCells[0] ?? "").trim().toUpperCase();
+        const jobNumber = String(rowCells[2] ?? "").trim();
         if (!jobNumber) continue;
 
         const isOffHours = marker === "OH";
@@ -244,7 +244,7 @@ serve(async (req) => {
 
         for (let c = 0; c < employees.length; c++) {
           const empName = employees[c].toUpperCase();
-          const val = parseFloat(rowCells[c + 3] || "0") || 0;
+          const val = parseFloat(String(rowCells[c + 3] ?? "0")) || 0;
           if (val > 0) {
             totalByEmployee.set(empName, (totalByEmployee.get(empName) || 0) + val);
             if (isOffHours) offHoursByEmployee.set(empName, (offHoursByEmployee.get(empName) || 0) + val);
