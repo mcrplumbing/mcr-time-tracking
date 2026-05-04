@@ -109,7 +109,7 @@ serve(async (req) => {
     // Find all TOTAL rows — TOTAL is now in column C (index 2)
     const totalRows: { rowIndex: number; values: string[] }[] = [];
     for (let i = 0; i < rows.length; i++) {
-      const cellC = (rows[i]?.[2] || "").toUpperCase().trim();
+      const cellC = String(rows[i]?.[2] ?? "").toUpperCase().trim();
       if (cellC === "TOTAL" && i > 20) {
         totalRows.push({ rowIndex: i, values: rows[i] || [] });
       }
