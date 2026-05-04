@@ -100,7 +100,8 @@ serve(async (req) => {
     console.log(`Recalculating recap for tab: ${tab.title}`);
 
     const range = encodeURIComponent(`${tab.title}!A1:Z200`);
-    const data = await sheetsApi(accessToken, `/values/${range}`);
+    // Use FORMULA render so any formulas in data rows are preserved when we sort.
+    const data = await sheetsApi(accessToken, `/values/${range}?valueRenderOption=FORMULA`);
     const rows: string[][] = data.values || [];
 
     const dayNames = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
