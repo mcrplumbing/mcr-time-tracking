@@ -279,7 +279,7 @@ serve(async (req) => {
     });
 
     for (let i = 0; i < Math.min(rows.length, 20); i++) {
-      const nameInC = (rows[i]?.[2] || "").trim();
+      const nameInC = String(rows[i]?.[2] ?? "").trim();
       if (!nameInC) continue;
 
       const nameUpper = nameInC.toUpperCase();
