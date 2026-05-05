@@ -338,8 +338,9 @@ serve(async (req) => {
       }
     }
 
-    if (requests.length > 0) {
-      await sheetsApi(accessToken, ":batchUpdate", "POST", { requests });
+    const allRequests = [...requests, ...colorRequests];
+    if (allRequests.length > 0) {
+      await sheetsApi(accessToken, ":batchUpdate", "POST", { requests: allRequests });
     }
 
     return new Response(
