@@ -204,6 +204,7 @@ serve(async (req) => {
     const offHoursByEmployee = new Map<string, number>();
     const vacationByEmployee = new Map<string, number>();
     const sickByEmployee = new Map<string, number>();
+    const colorRequests: any[] = [];
 
     for (const totalRow of totalRows) {
       let employeeHeaderRow = -1;
