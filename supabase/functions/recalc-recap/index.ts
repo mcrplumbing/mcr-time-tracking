@@ -231,6 +231,9 @@ serve(async (req) => {
         else break;
       }
 
+      // Determine row width for color formatting (A through last employee col)
+      const rowWidth = 3 + employees.length;
+
       for (let dataRow = employeeHeaderRow + 1; dataRow < totalRow.rowIndex; dataRow++) {
         const rowCells = rows[dataRow] || [];
         const marker = String(rowCells[0] ?? "").trim().toUpperCase();
@@ -241,6 +244,29 @@ serve(async (req) => {
         const isRegular = marker === "R";
         const isVacation = marker === "V";
         const isSick = marker === "S";
+
+        // Color the row based on marker
+        let color: { red: number; green: number; blue: number } | null = null;
+        if (isOffHours) color = { red: 0.8, green: 0, blue: 0 };       // red
+        else if (isRegular) color = { red: 0, green: 0, blue: 0 };      // black
+        else if (isSick) color = { red: 0, green: 0.6, blue: 0 };       // green
+        else if (isVacation) color = { red: 0, green: 0, blue: 0.8 };   // blue
+
+        if (color) {
+          colorRequests.push({
+            repeatCell: {
+              range: {
+                sheetId: tab.sheetId,
+                startRowIndex: dataRow,
+                endRowIndex: dataRow + 1,
+                startColumnIndex: 0,
+                endColumnIndex: rowWidth,
+              },
+              cell: { userEnteredFormat: { textFormat: { foregroundColor: color } } },
+              fields: "userEnteredFormat.textFormat.foregroundColor",
+            },
+          });
+        }
 
         for (let c = 0; c < employees.length; c++) {
           const empName = employees[c].toUpperCase();
