@@ -347,7 +347,7 @@ async function writeJobRows(
 
   const preservedRows: { jobNumber: string; rawCells: string[] }[] = [];
   for (const existing of existingDataRows) {
-    if (!incomingJobs.has(existing.jobNumber.toUpperCase())) {
+    if (appendMode || !incomingJobs.has(existing.jobNumber.toUpperCase())) {
       preservedRows.push({ jobNumber: existing.jobNumber, rawCells: existing.cells[0] });
     }
   }
