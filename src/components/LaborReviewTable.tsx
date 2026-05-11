@@ -624,10 +624,13 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel — don't overwrite</AlertDialogCancel>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button variant="secondary" onClick={confirmAppend}>
+              Add to sheet anyway
+            </Button>
             <AlertDialogAction onClick={confirmOverwrite}>
-              Yes, overwrite
+              Overwrite existing
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
