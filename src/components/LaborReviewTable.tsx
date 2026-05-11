@@ -148,20 +148,20 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
       type: e.type,
     }));
 
-  const performPush = async (entries: ReturnType<typeof buildEntriesPayload>) => {
+  const performPush = async (entries: ReturnType<typeof buildEntriesPayload>, appendMode = false) => {
     const { data, error } = await supabase.functions.invoke("push-to-sheets", {
-      body: { entries },
+      body: { entries, appendMode },
     });
     if (error) throw error;
     if (data?.error) throw new Error(data.error);
 
     setSheetUrl(data.spreadsheet_url);
     toast.success(
-      `${data.entries_added} entries sent to Google Sheets${data.is_new_sheet ? " (new sheet created)" : ""}`
+      `${data.entries_added} entries ${appendMode ? "appended to" : "sent to"} Google Sheets${data.is_new_sheet ? " (new sheet created)" : ""}`
     );
 
     const conflicts = data?.conflicts || [];
-    if (conflicts.length > 0) {
+    if (conflicts.length > 0 && !appendMode) {
       const preview = conflicts.slice(0, 4).map((c: any) =>
         `${c.day} • Job ${c.job_number} • ${c.employee} (${c.type}): sheet had ${c.existing_hours}h → overwrote with ${c.new_hours}h`
       ).join("\n");
@@ -208,6 +208,19 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
     setIsSending(true);
     try {
       await performPush(buildEntriesPayload());
+    } catch (err) {
+      console.error("Push to sheets error:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to send to Google Sheets.");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const confirmAppend = async () => {
+    setPendingConflicts(null);
+    setIsSending(true);
+    try {
+      await performPush(buildEntriesPayload(), true);
     } catch (err) {
       console.error("Push to sheets error:", err);
       toast.error(err instanceof Error ? err.message : "Failed to send to Google Sheets.");
@@ -594,9 +607,10 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <p>
-                  {pendingConflicts?.length ?? 0} entry(ies) in the spreadsheet will be{" "}
-                  <strong>overwritten</strong> by this push. Review below — proceed only if this
-                  is an intentional edit.
+                  {pendingConflicts?.length ?? 0} entry(ies) already exist for this job/day.
+                  Choose <strong>Overwrite existing</strong> to replace them, or{" "}
+                  <strong>Add to sheet anyway</strong> to add these as additional rows
+                  (use this for a second work order on the same job/day).
                 </p>
                 <div className="max-h-64 overflow-y-auto rounded border border-border bg-muted/30 p-2 text-xs font-mono space-y-1">
                   {pendingConflicts?.map((c, i) => (
@@ -611,10 +625,13 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel — don't overwrite</AlertDialogCancel>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button variant="secondary" onClick={confirmAppend}>
+              Add to sheet anyway
+            </Button>
             <AlertDialogAction onClick={confirmOverwrite}>
-              Yes, overwrite
+              Overwrite existing
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

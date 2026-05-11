@@ -263,62 +263,62 @@ async function writeJobRows(
   pivotRows: PivotRow[],
   dayName: string,
   dryRun = false,
+  appendMode = false,
 ): Promise<Conflict[]> {
   const { employeeRow, employees, dataStartRow, existingTotalRow, existingDataRows } = section;
 
   // Detect conflicts: any existing row with the same job number will be replaced by this push.
-  // This intentionally ignores marker/type because the write step removes all rows for incoming job numbers.
+  // In appendMode, no rows are replaced — incoming pivot rows are added alongside existing ones.
   const conflicts: Conflict[] = [];
   const markerToType: Record<string, string> = { R: "Regular", OH: "Off Hours", V: "Vacation", S: "Sick" };
   const normalizeJobNumber = (value: unknown) => (value ?? "").toString().trim().toUpperCase();
-  console.log(`[conflict-check] ${dayName}: ${existingDataRows.length} existing rows, ${pivotRows.length} incoming pivot rows`);
-  for (const ex of existingDataRows) {
-    const c = ex.cells[0] || [];
-    console.log(`[conflict-check] existing row → marker="${c[0]}" job="${c[2]}" cells.len=${c.length}`);
-  }
-  for (const pr of pivotRows) {
-    const incomingMarker = typeToMarker(pr.entryType);
-    console.log(`[conflict-check] incoming → marker="${incomingMarker}" job="${pr.job_number}" employees=${[...pr.hoursByEmployee.entries()].map(([k,v])=>`${k}:${v}`).join(",")}`);
-    for (const existing of existingDataRows) {
-      const exCells = existing.cells[0] || [];
-      const exMarker = (exCells[0] || "").toString().trim().toUpperCase();
-      const exJob = (exCells[2] || "").toString().trim();
-      if (normalizeJobNumber(exJob) !== normalizeJobNumber(pr.job_number)) continue;
-      // Same job number → row-level conflict (always flag), then add per-employee detail.
-      // Even a Regular row conflicts with an incoming Off Hours row because the rewrite preserves by job number only.
-      let rowFlagged = false;
-      for (let c = 0; c < employees.length; c++) {
-        const emp = employees[c];
-        const exVal = parseFloat((exCells[c + 3] ?? "").toString()) || 0;
-        const newVal = pr.hoursByEmployee.get(emp) || 0;
-        if (exVal > 0 || newVal > 0) {
-          rowFlagged = true;
+  if (!appendMode) {
+    console.log(`[conflict-check] ${dayName}: ${existingDataRows.length} existing rows, ${pivotRows.length} incoming pivot rows`);
+    for (const ex of existingDataRows) {
+      const c = ex.cells[0] || [];
+      console.log(`[conflict-check] existing row → marker="${c[0]}" job="${c[2]}" cells.len=${c.length}`);
+    }
+    for (const pr of pivotRows) {
+      const incomingMarker = typeToMarker(pr.entryType);
+      console.log(`[conflict-check] incoming → marker="${incomingMarker}" job="${pr.job_number}" employees=${[...pr.hoursByEmployee.entries()].map(([k,v])=>`${k}:${v}`).join(",")}`);
+      for (const existing of existingDataRows) {
+        const exCells = existing.cells[0] || [];
+        const exMarker = (exCells[0] || "").toString().trim().toUpperCase();
+        const exJob = (exCells[2] || "").toString().trim();
+        if (normalizeJobNumber(exJob) !== normalizeJobNumber(pr.job_number)) continue;
+        let rowFlagged = false;
+        for (let c = 0; c < employees.length; c++) {
+          const emp = employees[c];
+          const exVal = parseFloat((exCells[c + 3] ?? "").toString()) || 0;
+          const newVal = pr.hoursByEmployee.get(emp) || 0;
+          if (exVal > 0 || newVal > 0) {
+            rowFlagged = true;
+            conflicts.push({
+              day: dayName,
+              job_number: pr.job_number,
+              type: exMarker === incomingMarker
+                ? markerToType[incomingMarker] || incomingMarker
+                : `${markerToType[exMarker] || exMarker || "Existing"} → ${markerToType[incomingMarker] || incomingMarker}`,
+              employee: emp,
+              existing_hours: exVal,
+              new_hours: newVal,
+            });
+          }
+        }
+        if (!rowFlagged) {
           conflicts.push({
             day: dayName,
             job_number: pr.job_number,
-            type: exMarker === incomingMarker
-              ? markerToType[incomingMarker] || incomingMarker
-              : `${markerToType[exMarker] || exMarker || "Existing"} → ${markerToType[incomingMarker] || incomingMarker}`,
-            employee: emp,
-            existing_hours: exVal,
-            new_hours: newVal,
+            type: markerToType[incomingMarker] || incomingMarker,
+            employee: "(row exists)",
+            existing_hours: 0,
+            new_hours: 0,
           });
         }
       }
-      // If row exists but no employee hours matched (e.g. all zeros), still warn once
-      if (!rowFlagged) {
-        conflicts.push({
-          day: dayName,
-          job_number: pr.job_number,
-          type: markerToType[incomingMarker] || incomingMarker,
-          employee: "(row exists)",
-          existing_hours: 0,
-          new_hours: 0,
-        });
-      }
     }
+    console.log(`[conflict-check] ${dayName}: detected ${conflicts.length} conflict(s)`);
   }
-  console.log(`[conflict-check] ${dayName}: detected ${conflicts.length} conflict(s)`);
 
   if (dryRun) {
     // Detection-only mode: don't write anything, just report conflicts
@@ -347,7 +347,7 @@ async function writeJobRows(
 
   const preservedRows: { jobNumber: string; rawCells: string[] }[] = [];
   for (const existing of existingDataRows) {
-    if (!incomingJobs.has(existing.jobNumber.toUpperCase())) {
+    if (appendMode || !incomingJobs.has(existing.jobNumber.toUpperCase())) {
       preservedRows.push({ jobNumber: existing.jobNumber, rawCells: existing.cells[0] });
     }
   }
@@ -629,7 +629,7 @@ serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const { entries, dryRun = false } = (await req.json()) as { entries: LaborEntry[]; dryRun?: boolean };
+    const { entries, dryRun = false, appendMode = false } = (await req.json()) as { entries: LaborEntry[]; dryRun?: boolean; appendMode?: boolean };
     if (!entries || entries.length === 0) throw new Error("No entries provided");
 
     const accessToken = await getAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
@@ -659,7 +659,7 @@ serve(async (req) => {
 
       const pivotRows = pivotEntries(dayEntries, section.employees);
 
-      const conflicts = await writeJobRows(accessToken, tab.sheetId, tab.title, section, pivotRows, dayName, dryRun);
+      const conflicts = await writeJobRows(accessToken, tab.sheetId, tab.title, section, pivotRows, dayName, dryRun, appendMode);
       if (conflicts.length > 0) {
         console.log(`⚠️  ${conflicts.length} conflict(s) in ${dayName}`);
         allConflicts.push(...conflicts);
