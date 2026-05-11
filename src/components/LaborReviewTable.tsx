@@ -607,9 +607,10 @@ const LaborReviewTable = ({ workOrders, onUpdate, flags = [] }: LaborReviewTable
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <p>
-                  {pendingConflicts?.length ?? 0} entry(ies) in the spreadsheet will be{" "}
-                  <strong>overwritten</strong> by this push. Review below — proceed only if this
-                  is an intentional edit.
+                  {pendingConflicts?.length ?? 0} entry(ies) already exist for this job/day.
+                  Choose <strong>Overwrite existing</strong> to replace them, or{" "}
+                  <strong>Add to sheet anyway</strong> to add these as additional rows
+                  (use this for a second work order on the same job/day).
                 </p>
                 <div className="max-h-64 overflow-y-auto rounded border border-border bg-muted/30 p-2 text-xs font-mono space-y-1">
                   {pendingConflicts?.map((c, i) => (
