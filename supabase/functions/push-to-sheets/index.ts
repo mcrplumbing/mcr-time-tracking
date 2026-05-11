@@ -659,7 +659,7 @@ serve(async (req) => {
 
       const pivotRows = pivotEntries(dayEntries, section.employees);
 
-      const conflicts = await writeJobRows(accessToken, tab.sheetId, tab.title, section, pivotRows, dayName, dryRun);
+      const conflicts = await writeJobRows(accessToken, tab.sheetId, tab.title, section, pivotRows, dayName, dryRun, appendMode);
       if (conflicts.length > 0) {
         console.log(`⚠️  ${conflicts.length} conflict(s) in ${dayName}`);
         allConflicts.push(...conflicts);
