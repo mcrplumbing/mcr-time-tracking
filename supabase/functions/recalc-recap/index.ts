@@ -287,23 +287,6 @@ serve(async (req) => {
     const requests: any[] = [];
     let updatedCount = 0;
 
-    // Header labels in row 1 cols D-I
-    requests.push({
-      updateCells: {
-        rows: [{
-          values: [
-            { userEnteredValue: { stringValue: "Total" }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: "Regular" }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: "Off-Hours" }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: "Vacation" }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: "Sick" }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: "Total" }, userEnteredFormat: { textFormat: { bold: true } } },
-          ],
-        }],
-        start: { sheetId: tab.sheetId, rowIndex: 0, columnIndex: 3 },
-        fields: "userEnteredValue,userEnteredFormat.textFormat",
-      },
-    });
 
     for (let i = 0; i < Math.min(rows.length, 20); i++) {
       const nameInC = String(rows[i]?.[2] ?? "").trim();
@@ -327,7 +310,6 @@ serve(async (req) => {
                 { userEnteredValue: { numberValue: offHours } },
                 { userEnteredValue: { numberValue: vacation } },
                 { userEnteredValue: { numberValue: sick } },
-                { userEnteredValue: { numberValue: total } },
               ],
             }],
             start: { sheetId: tab.sheetId, rowIndex: i, columnIndex: 3 },
