@@ -110,7 +110,7 @@ serve(async (req) => {
     const totalRows: { rowIndex: number; values: string[] }[] = [];
     for (let i = 0; i < rows.length; i++) {
       const cellC = String(rows[i]?.[2] ?? "").toUpperCase().trim();
-      if (cellC === "TOTAL" && i > 20) {
+      if (cellC === "TOTAL" && i > 14) {
         totalRows.push({ rowIndex: i, values: rows[i] || [] });
       }
     }

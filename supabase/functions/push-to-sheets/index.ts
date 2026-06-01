@@ -491,7 +491,7 @@ async function updateRecapSection(
     // TOTAL is now in column C (index 2)
     const cellC = (rows[i]?.[2] || "").toUpperCase().trim();
 
-    if (cellC === "TOTAL" && i > 20) {
+    if (cellC === "TOTAL" && i > 14) {
       totalRows.push({ rowIndex: i, values: rows[i] || [] });
     }
   }
