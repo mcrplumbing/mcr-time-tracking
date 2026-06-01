@@ -253,6 +253,7 @@ serve(async (req) => {
 
 
 
+
         // Color the row based on marker
 
         let color: { red: number; green: number; blue: number } | null = null;
