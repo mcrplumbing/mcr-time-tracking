@@ -110,12 +110,14 @@ serve(async (req) => {
     const totalRows: { rowIndex: number; values: string[] }[] = [];
     for (let i = 0; i < rows.length; i++) {
       const cellC = String(rows[i]?.[2] ?? "").toUpperCase().trim();
-      if (cellC === "TOTAL" && i > 20) {
+      if (cellC === "TOTAL" && i > 14) {
         totalRows.push({ rowIndex: i, values: rows[i] || [] });
       }
     }
 
     console.log(`Found ${totalRows.length} TOTAL rows`);
+
+
 
     // ---- Sort each day's data rows by job number (column C) ----
     // For each TOTAL row, find its day's employee header row, then sort
@@ -249,11 +251,9 @@ serve(async (req) => {
         // Sick / Vacation rows entered manually often have no job number — still count them.
         if (!isOffHours && !isRegular && !isVacation && !isSick && !jobNumber) continue;
 
-        console.log(`Row ${dataRow + 1}: marker='${marker}' job='${jobNumber}' cells=${JSON.stringify(rowCells.slice(0, 3 + employees.length))}`);
-
-
-
         // Color the row based on marker
+
+
 
         let color: { red: number; green: number; blue: number } | null = null;
         if (isOffHours) color = { red: 0.8, green: 0, blue: 0 };       // red
@@ -296,7 +296,7 @@ serve(async (req) => {
     let updatedCount = 0;
 
 
-    for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    for (let i = 0; i < Math.min(rows.length, 14); i++) {
       const nameInC = String(rows[i]?.[2] ?? "").trim();
       if (!nameInC) continue;
 
