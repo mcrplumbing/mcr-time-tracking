@@ -534,12 +534,15 @@ async function updateRecapSection(
       const rowCells = rows[dataRow] || [];
       const marker = (rowCells[0] || "").trim().toUpperCase();
       const jobNumber = (rowCells[2] || "").trim();
-      if (!jobNumber) continue;
 
       const isOffHours = marker === "OH";
       const isRegular = marker === "R";
       const isVacation = marker === "V";
       const isSick = marker === "S";
+
+      // Skip only rows that have neither a marker nor a job number (truly blank rows).
+      // Sick / Vacation rows are often manually entered without a job number — still count them.
+      if (!isOffHours && !isRegular && !isVacation && !isSick && !jobNumber) continue;
 
       for (let c = 0; c < employees.length; c++) {
         const empName = employees[c].toUpperCase();
