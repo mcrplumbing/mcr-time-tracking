@@ -534,12 +534,15 @@ async function updateRecapSection(
       const rowCells = rows[dataRow] || [];
       const marker = (rowCells[0] || "").trim().toUpperCase();
       const jobNumber = (rowCells[2] || "").trim();
-      if (!jobNumber) continue;
 
       const isOffHours = marker === "OH";
       const isRegular = marker === "R";
       const isVacation = marker === "V";
       const isSick = marker === "S";
+
+      // Skip only rows that have neither a marker nor a job number (truly blank rows).
+      // Sick / Vacation rows are often manually entered without a job number — still count them.
+      if (!isOffHours && !isRegular && !isVacation && !isSick && !jobNumber) continue;
 
       for (let c = 0; c < employees.length; c++) {
         const empName = employees[c].toUpperCase();
@@ -560,23 +563,8 @@ async function updateRecapSection(
   // Recap layout: C=Name, D=Total, E=Regular, F=Off-Hours, G=Vacation, H=Sick, I=Total (verification)
   const requests: any[] = [];
 
-  // Write header labels in row 1 (rowIndex 0) for cols D-I if not already correct
-  requests.push({
-    updateCells: {
-      rows: [{
-        values: [
-          { userEnteredValue: { stringValue: "Total" }, userEnteredFormat: { textFormat: { bold: true } } },
-          { userEnteredValue: { stringValue: "Regular" }, userEnteredFormat: { textFormat: { bold: true } } },
-          { userEnteredValue: { stringValue: "Off-Hours" }, userEnteredFormat: { textFormat: { bold: true } } },
-          { userEnteredValue: { stringValue: "Vacation" }, userEnteredFormat: { textFormat: { bold: true } } },
-          { userEnteredValue: { stringValue: "Sick" }, userEnteredFormat: { textFormat: { bold: true } } },
-          { userEnteredValue: { stringValue: "Total" }, userEnteredFormat: { textFormat: { bold: true } } },
-        ],
-      }],
-      start: { sheetId, rowIndex: 0, columnIndex: 3 },
-      fields: "userEnteredValue,userEnteredFormat.textFormat",
-    },
-  });
+  // (Header labels in row 1 are managed manually in the sheet — do not overwrite.)
+
 
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
     const nameInC = (rows[i]?.[2] || "").trim();
@@ -600,7 +588,6 @@ async function updateRecapSection(
               { userEnteredValue: { numberValue: offHours } },  // F: Off-Hours
               { userEnteredValue: { numberValue: vacation } },  // G: Vacation
               { userEnteredValue: { numberValue: sick } },      // H: Sick
-              { userEnteredValue: { numberValue: total } },     // I: Total (verification)
             ],
           }],
           start: { sheetId, rowIndex: i, columnIndex: 3 },

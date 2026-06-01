@@ -239,12 +239,15 @@ serve(async (req) => {
         const rowCells = rows[dataRow] || [];
         const marker = String(rowCells[0] ?? "").trim().toUpperCase();
         const jobNumber = String(rowCells[2] ?? "").trim();
-        if (!jobNumber) continue;
 
         const isOffHours = marker === "OH";
         const isRegular = marker === "R";
         const isVacation = marker === "V";
         const isSick = marker === "S";
+
+        // Skip only rows that have neither a marker nor a job number.
+        // Sick / Vacation rows entered manually often have no job number — still count them.
+        if (!isOffHours && !isRegular && !isVacation && !isSick && !jobNumber) continue;
 
         // Color the row based on marker
         let color: { red: number; green: number; blue: number } | null = null;
