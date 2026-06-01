@@ -309,6 +309,8 @@ serve(async (req) => {
         const vacation = vacationByEmployee.get(nameUpper) || 0;
         const sick = sickByEmployee.get(nameUpper) || 0;
 
+        console.log(`Recap ${nameInC}: total=${total} reg=${regular} oh=${offHours} vac=${vacation} sick=${sick}`);
+
         requests.push({
           updateCells: {
             rows: [{
@@ -327,6 +329,7 @@ serve(async (req) => {
         updatedCount++;
       }
     }
+
 
     const allRequests = [...requests, ...colorRequests];
     if (allRequests.length > 0) {
