@@ -566,7 +566,7 @@ async function updateRecapSection(
   // (Header labels in row 1 are managed manually in the sheet — do not overwrite.)
 
 
-  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+  for (let i = 0; i < Math.min(rows.length, 14); i++) {
     const nameInC = (rows[i]?.[2] || "").trim();
     if (!nameInC) continue;
 
