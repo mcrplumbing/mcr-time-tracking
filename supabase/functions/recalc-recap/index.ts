@@ -116,6 +116,10 @@ serve(async (req) => {
     }
 
     console.log(`Found ${totalRows.length} TOTAL rows`);
+    for (let i = 0; i < Math.min(rows.length, 25); i++) {
+      console.log(`PEEK row ${i + 1}: ${JSON.stringify((rows[i] || []).slice(0, 12))}`);
+    }
+
 
     // ---- Sort each day's data rows by job number (column C) ----
     // For each TOTAL row, find its day's employee header row, then sort
