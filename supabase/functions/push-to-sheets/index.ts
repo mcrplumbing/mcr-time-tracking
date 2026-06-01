@@ -563,23 +563,8 @@ async function updateRecapSection(
   // Recap layout: C=Name, D=Total, E=Regular, F=Off-Hours, G=Vacation, H=Sick, I=Total (verification)
   const requests: any[] = [];
 
-  // Write header labels in row 1 (rowIndex 0) for cols D-I if not already correct
-  requests.push({
-    updateCells: {
-      rows: [{
-        values: [
-          { userEnteredValue: { stringValue: "Total" }, userEnteredFormat: { textFormat: { bold: true } } },
-          { userEnteredValue: { stringValue: "Regular" }, userEnteredFormat: { textFormat: { bold: true } } },
-          { userEnteredValue: { stringValue: "Off-Hours" }, userEnteredFormat: { textFormat: { bold: true } } },
-          { userEnteredValue: { stringValue: "Vacation" }, userEnteredFormat: { textFormat: { bold: true } } },
-          { userEnteredValue: { stringValue: "Sick" }, userEnteredFormat: { textFormat: { bold: true } } },
-          { userEnteredValue: { stringValue: "Total" }, userEnteredFormat: { textFormat: { bold: true } } },
-        ],
-      }],
-      start: { sheetId, rowIndex: 0, columnIndex: 3 },
-      fields: "userEnteredValue,userEnteredFormat.textFormat",
-    },
-  });
+  // (Header labels in row 1 are managed manually in the sheet — do not overwrite.)
+
 
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
     const nameInC = (rows[i]?.[2] || "").trim();
