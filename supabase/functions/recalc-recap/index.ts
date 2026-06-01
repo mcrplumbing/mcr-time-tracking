@@ -296,7 +296,7 @@ serve(async (req) => {
     let updatedCount = 0;
 
 
-    for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    for (let i = 0; i < Math.min(rows.length, 14); i++) {
       const nameInC = String(rows[i]?.[2] ?? "").trim();
       if (!nameInC) continue;
 
