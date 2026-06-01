@@ -251,12 +251,9 @@ serve(async (req) => {
         // Sick / Vacation rows entered manually often have no job number — still count them.
         if (!isOffHours && !isRegular && !isVacation && !isSick && !jobNumber) continue;
 
-        console.log(`Row ${dataRow + 1}: marker='${marker}' job='${jobNumber}' cells=${JSON.stringify(rowCells.slice(0, 3 + employees.length))}`);
-
-
-
-
         // Color the row based on marker
+
+
 
         let color: { red: number; green: number; blue: number } | null = null;
         if (isOffHours) color = { red: 0.8, green: 0, blue: 0 };       // red
