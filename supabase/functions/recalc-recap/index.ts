@@ -249,7 +249,13 @@ serve(async (req) => {
         // Sick / Vacation rows entered manually often have no job number — still count them.
         if (!isOffHours && !isRegular && !isVacation && !isSick && !jobNumber) continue;
 
+        if (isSick || isVacation || (!isRegular && !isOffHours)) {
+          console.log(`Row ${dataRow + 1}: marker='${marker}' job='${jobNumber}' cells=${JSON.stringify(rowCells.slice(0, 3 + employees.length))}`);
+        }
+
+
         // Color the row based on marker
+
         let color: { red: number; green: number; blue: number } | null = null;
         if (isOffHours) color = { red: 0.8, green: 0, blue: 0 };       // red
         else if (isRegular) color = { red: 0, green: 0, blue: 0 };      // black
@@ -304,6 +310,8 @@ serve(async (req) => {
         const vacation = vacationByEmployee.get(nameUpper) || 0;
         const sick = sickByEmployee.get(nameUpper) || 0;
 
+        console.log(`Recap ${nameInC}: total=${total} reg=${regular} oh=${offHours} vac=${vacation} sick=${sick}`);
+
         requests.push({
           updateCells: {
             rows: [{
@@ -322,6 +330,7 @@ serve(async (req) => {
         updatedCount++;
       }
     }
+
 
     const allRequests = [...requests, ...colorRequests];
     if (allRequests.length > 0) {
