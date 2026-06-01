@@ -588,7 +588,6 @@ async function updateRecapSection(
               { userEnteredValue: { numberValue: offHours } },  // F: Off-Hours
               { userEnteredValue: { numberValue: vacation } },  // G: Vacation
               { userEnteredValue: { numberValue: sick } },      // H: Sick
-              { userEnteredValue: { numberValue: total } },     // I: Total (verification)
             ],
           }],
           start: { sheetId, rowIndex: i, columnIndex: 3 },
